@@ -1,0 +1,34 @@
+@baseUrl = http://localhost:3000
+@customerId = 1
+@planId = 1
+@jobCode = REPLACE_FROM_JOBS
+
+### Shop
+GET {{baseUrl}}/api/route/shop
+
+### Customer (copy last_id from response)
+POST {{baseUrl}}/api/customer
+Content-Type: application/json
+
+{"name":"ลูกค้าทดสอบ","phone":"0800000000","address":"หน้ามหาวิทยาลัย","latitude":16.247,"longitude":103.251}
+
+### Order
+POST {{baseUrl}}/api/order
+Content-Type: application/json
+
+{"customer_id":{{customerId}},"quantity":2,"order_date":"2026-10-08"}
+
+### Calculate and save plan (requires a rider in DB)
+POST {{baseUrl}}/api/route/calculate
+Content-Type: application/json
+
+{"delivery_date":"2026-10-08","rider_count":1}
+
+### Plan
+GET {{baseUrl}}/api/route/plans/{{planId}}
+
+### Jobs
+GET {{baseUrl}}/api/jobs
+
+### Job detail
+GET {{baseUrl}}/api/jobs/{{jobCode}}
