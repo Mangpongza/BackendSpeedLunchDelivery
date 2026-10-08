@@ -26,6 +26,8 @@ Base URL: `http://localhost:3000`
 
 ตั้งค่า `DB_NAME` ใน `.env` ให้ตรงกับฐานข้อมูลที่นำเข้า ตัวอย่างเรียก API อยู่ใน `requests.http`
 
+หากสร้างฐานข้อมูลด้วย schema รุ่นก่อนที่ยังมีคอลัมน์ `color` ให้รัน `remove-route-color.sql` หนึ่งครั้งก่อนเปิด Backend รุ่นนี้
+
 ## เส้น API
 
 | Method | Path | หน้าที่ |

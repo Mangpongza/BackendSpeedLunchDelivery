@@ -109,10 +109,6 @@ CREATE TABLE rider_routes (
         CHARACTER SET ascii
         COLLATE ascii_bin
         NOT NULL,
-    color CHAR(7)
-        CHARACTER SET ascii
-        COLLATE ascii_bin
-        NOT NULL,
     total_boxes SMALLINT UNSIGNED NOT NULL,
     distance_km DECIMAL(10, 2) NOT NULL,
     duration_minutes SMALLINT UNSIGNED NOT NULL,

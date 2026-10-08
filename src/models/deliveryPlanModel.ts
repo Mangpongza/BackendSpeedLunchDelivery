@@ -61,7 +61,6 @@ export interface RouteDetail {
   rider_number: number;
   rider_name: string;
   rider_phone: string;
-  color: string;
   total_boxes: number;
   distance_km: number;
   duration_minutes: number;
@@ -86,16 +85,3 @@ export interface StopDetail {
   arrival_time: string;
   distance_from_previous_km: number;
 }
-
-export const ROUTE_COLORS: string[] = [
-  '#ef4444',
-  '#3b82f6',
-  '#22c55e',
-  '#f59e0b',
-  '#a855f7',
-  '#ec4899',
-  '#06b6d4',
-  '#f97316',
-  '#84cc16',
-  '#6366f1',
-];

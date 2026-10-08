@@ -11,7 +11,7 @@ export const getJobs = async (req: Request, res: Response) => {
              DATE_FORMAT(p.delivery_date, '%Y-%m-%d') AS delivery_date,
              p.id AS plan_id,
              rr.id AS route_id, rr.rider_number, rr.rider_id,
-             r.name AS rider_name, r.phone AS rider_phone, rr.color,
+             r.name AS rider_name, r.phone AS rider_phone,
              rr.total_boxes, rr.distance_km, rr.duration_minutes,
              rr.delivery_cost, rr.navigation_url,
              (SELECT COUNT(*) FROM route_stops rs WHERE rs.route_id = rr.id) AS total_orders
@@ -44,7 +44,7 @@ export const getJobByCode = async (req: Request, res: Response) => {
               p.id AS plan_id, p.departure_time, p.deadline_time,
               p.last_arrival_time, p.all_on_time,
               rr.id AS route_id, rr.rider_number, rr.rider_id,
-              r.name AS rider_name, r.phone AS rider_phone, rr.color,
+              r.name AS rider_name, r.phone AS rider_phone,
               rr.total_boxes, rr.distance_km, rr.duration_minutes,
               rr.delivery_cost, rr.geometry, rr.navigation_url
        FROM rider_routes rr

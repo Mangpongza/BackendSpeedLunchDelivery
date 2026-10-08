@@ -5,7 +5,6 @@ import {
   CalculatePlanBody,
   PendingOrderRow,
   RiderModel,
-  ROUTE_COLORS,
   ShopModel,
 } from "../models/deliveryPlanModel";
 
@@ -276,8 +275,7 @@ export const calculatePlan = async (req: Request, res: Response) => {
       totalDist += dist;
       totalDeliveryCost += cost;
       if (lastArr > lastArrivalMin) lastArrivalMin = lastArr;
-      const color = ROUTE_COLORS[i % ROUTE_COLORS.length]!;
-      return { rider, stops, boxes, dist, duration, arrivals, cost, color };
+      return { rider, stops, boxes, dist, duration, arrivals, cost };
     });
 
     const revenue = totalBoxes * pricePerBox;
@@ -331,15 +329,14 @@ export const calculatePlan = async (req: Request, res: Response) => {
 
         const [routeResult] = await poolConn.query<ResultSetHeader>(
           `INSERT INTO rider_routes
-           (plan_id, rider_id, rider_number, job_code, color,
+           (plan_id, rider_id, rider_number, job_code,
             total_boxes, distance_km, duration_minutes, delivery_cost, geometry, navigation_url)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             planId,
             rs.rider.id,
             i + 1,
             jobCode,
-            rs.color,
             rs.boxes,
             rs.dist.toFixed(2),
             rs.duration,
@@ -379,7 +376,6 @@ export const calculatePlan = async (req: Request, res: Response) => {
           rider_number: i + 1,
           rider_name: rs.rider.name,
           rider_phone: rs.rider.phone,
-          color: rs.color,
           total_boxes: rs.boxes,
           distance_km: Number(rs.dist.toFixed(2)),
           duration_minutes: rs.duration,
