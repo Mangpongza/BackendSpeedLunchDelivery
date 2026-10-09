@@ -198,8 +198,9 @@ export function planRoutes<T extends PlannerOrder>(orders: T[], opt: PlannerOpti
     const tooBig = orders.find((o) => o.quantity > opt.boxCapacity);
     if (tooBig) throw new PlannerError(`Order ${tooBig.id} has more boxes than one rider can carry`);
 
+    // ขอไรเดอร์มากกว่าจำนวนออเดอร์ไม่ได้ (1 คนต้องมีอย่างน้อย 1 จุด)
     const kMin = Math.max(
-        opt.minRiders,
+        Math.min(opt.minRiders, orders.length),
         Math.ceil(orders.length / opt.maxStopsPerRoute),
         Math.ceil(totalBoxes / opt.boxCapacity)
     );

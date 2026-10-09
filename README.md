@@ -6,7 +6,7 @@ REST API สำหรับระบบจัดเส้นทางและ�
 
 1. `npm install`
 2. `Copy-Item .env.example .env` แล้วกรอกข้อมูล MySQL และตั้ง `AUTH_SECRET`
-3. นำเข้า `sqlschema.sql` (phpMyAdmin / MySQL Workbench) ได้ฐานข้อมูล `speed_lunch_delivery` พร้อมข้อมูลร้านและไรเดอร์ตัวอย่าง 5 คน
+3. นำเข้า `sqlschema.sql` (phpMyAdmin / MySQL Workbench) ได้ฐานข้อมูล `speed_lunch_delivery` พร้อมข้อมูลร้านและไรเดอร์ตัวอย่าง 10 คน
    - ถ้าเคยนำเข้า schema รุ่นเก่าแล้ว ให้ `DROP DATABASE speed_lunch_delivery;` ก่อน แล้วค่อยนำเข้าใหม่ (โครงสร้างตารางเปลี่ยนตาม ER)
 4. `npm run dev` แล้วเปิด `http://localhost:3000/api/health`
 5. ตัวอย่างเรียกทุกเส้นอยู่ใน `requests.http` (ใช้กับ VS Code REST Client)
