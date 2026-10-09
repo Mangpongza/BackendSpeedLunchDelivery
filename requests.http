@@ -24,6 +24,9 @@ Content-Type: application/json
 
 ############ ลูกค้า ############
 
+### รายชื่อลูกค้าทั้งหมด
+GET {{baseUrl}}/api/customer
+
 ### เพิ่มลูกค้า
 POST {{baseUrl}}/api/customer
 Content-Type: application/json
@@ -39,6 +42,9 @@ GET {{baseUrl}}/api/customer/search/fields?phone=0800
 ### ลูกค้าใกล้พิกัด
 GET {{baseUrl}}/api/customer/nearby?latitude=16.2462&longitude=103.2501&radius_km=2
 
+### ดูลูกค้าตาม ID
+GET {{baseUrl}}/api/customer/{{customerId}}
+
 ### แก้ไขลูกค้า
 PUT {{baseUrl}}/api/customer/{{customerId}}
 Content-Type: application/json
@@ -47,6 +53,9 @@ Content-Type: application/json
 
 ### ประวัติออเดอร์ลูกค้า
 GET {{baseUrl}}/api/customer/{{customerId}}/orders
+
+### ลบลูกค้า
+DELETE {{baseUrl}}/api/customer/{{customerId}}
 
 ############ ออเดอร์ ############
 
@@ -71,6 +80,12 @@ Content-Type: application/json
 ### รายการออเดอร์ของวัน
 GET {{baseUrl}}/api/order?date={{date}}&status=pending
 
+### ออเดอร์ใกล้พิกัด
+GET {{baseUrl}}/api/order/nearby?latitude=16.2462&longitude=103.2501&radius_km=2&date={{date}}
+
+### ดูออเดอร์ตาม ID
+GET {{baseUrl}}/api/order/{{orderId}}
+
 ### แก้ออเดอร์
 PUT {{baseUrl}}/api/order/{{orderId}}
 Content-Type: application/json
@@ -88,6 +103,9 @@ DELETE {{baseUrl}}/api/order/demo
 ### รายชื่อไรเดอร์
 GET {{baseUrl}}/api/riders?date={{date}}
 
+### ดูไรเดอร์ตาม ID
+GET {{baseUrl}}/api/riders/{{riderId}}
+
 ### เพิ่มไรเดอร์
 POST {{baseUrl}}/api/riders
 Content-Type: application/json
@@ -100,10 +118,19 @@ Content-Type: application/json
 
 {"name":"ไรเดอร์ 1","phone":"0810000001"}
 
+### ลบไรเดอร์
+DELETE {{baseUrl}}/api/riders/{{riderId}}
+
 ############ จัดเส้นทาง ############
 
 ### ออเดอร์รอส่ง
 GET {{baseUrl}}/api/route/pending?date={{date}}
+
+### ข้อมูลร้านผ่านเส้นเดิม
+GET {{baseUrl}}/api/route/shop
+
+### รายชื่อไรเดอร์ผ่านเส้นเดิม
+GET {{baseUrl}}/api/route/riders?date={{date}}
 
 ### กดปุ่มจัดเส้นทาง
 POST {{baseUrl}}/api/route/calculate
