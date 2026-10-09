@@ -1,9 +1,9 @@
 import { Request, Response } from "express";
 import { db } from "../config/dbconnect";
-import { getSettings } from "../services/settingsService";
+import { getSettings } from "../shopSettingsService";
 import { BOX_CAPACITY_PER_RIDER, LATE_PENALTY_PER_ORDER } from "../models/settingsModel";
-import { HttpError } from "../utils/http";
-import { requireLatLng, requireNumber, requireText } from "../utils/validate";
+import { HttpError } from "../errorHandler";
+import { requireLatLng, requireNumber, requireText } from "../validation";
 
 // GET /api/settings
 export const getShopSettings = async (_req: Request, res: Response) => {

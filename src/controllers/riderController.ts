@@ -2,8 +2,8 @@ import { Request, Response } from "express";
 import { ResultSetHeader } from "mysql2";
 import { db } from "../config/dbconnect";
 import { RiderModel } from "../models/riderModel";
-import { HttpError } from "../utils/http";
-import { dateOrToday, normalizePhone, requireId, requireText } from "../utils/validate";
+import { HttpError } from "../errorHandler";
+import { dateOrToday, normalizePhone, requireId, requireText } from "../validation";
 
 // GET /api/riders?search=คำค้น&date=YYYY-MM-DD
 // ส่งจำนวนงานในวันนั้นกลับไปด้วย เพื่อให้หน้าเจ้าของร้านเห็นว่าใครว่าง

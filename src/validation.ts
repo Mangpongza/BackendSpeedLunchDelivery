@@ -1,4 +1,4 @@
-import { HttpError } from "./http";
+import { HttpError } from "./errorHandler";
 
 export const TIMEZONE = process.env.TZ_NAME ?? "Asia/Bangkok";
 

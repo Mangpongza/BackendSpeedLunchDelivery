@@ -1,8 +1,8 @@
 import type { Pool } from "mysql2/promise";
-import { db } from "../config/dbconnect";
-import { SettingsModel } from "../models/settingsModel";
-import { HttpError } from "../utils/http";
-import { haversineKm, round } from "../utils/geo";
+import { db } from "./config/dbconnect";
+import { SettingsModel } from "./models/settingsModel";
+import { HttpError } from "./errorHandler";
+import { haversineKm, round } from "./distanceCalculator";
 
 type Queryable = Pick<Pool, "query">;
 

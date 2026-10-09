@@ -7,7 +7,7 @@ import { router as jobRoutes } from "./src/routes/jobRoutes";
 import { router as riderRoutes } from "./src/routes/riderRoutes";
 import { router as settingsRoutes } from "./src/routes/settingsRoutes";
 import { authRouter, meRouter } from "./src/routes/authRoutes";
-import { errorHandler, notFoundHandler } from "./src/utils/http";
+import { errorHandler, notFoundHandler } from "./src/errorHandler";
 
 export const app = express();
 

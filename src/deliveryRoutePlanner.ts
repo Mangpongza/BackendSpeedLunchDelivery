@@ -1,4 +1,4 @@
-import { haversineKm } from "../utils/geo";
+import { haversineKm } from "./distanceCalculator";
 
 /**
  * อัลกอริทึมจัดเส้นทาง (ไม่ยุ่งกับฐานข้อมูล ทดสอบแยกได้)

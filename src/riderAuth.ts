@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { NextFunction, Request, Response } from "express";
-import { HttpError } from "../utils/http";
+import { HttpError } from "./errorHandler";
 
 // token แบบง่าย (คล้าย JWT) ใช้ crypto ที่มากับ Node ไม่ต้องลงแพ็กเกจเพิ่ม
 // รูปแบบ: base64url(payload).base64url(hmac-sha256)

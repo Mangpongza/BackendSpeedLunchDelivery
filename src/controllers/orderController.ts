@@ -2,11 +2,11 @@ import { Request, Response } from "express";
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import { db } from "../config/dbconnect";
 import { CreateOrderModel, ORDER_STATUSES, OrderModel, OrderStatus, UpdateOrderModel } from "../models/orderModel";
-import { assertInServiceArea, getSettings } from "../services/settingsService";
-import { refreshRouteAndPlanStatus } from "../services/planService";
+import { assertInServiceArea, getSettings } from "../shopSettingsService";
+import { refreshRouteAndPlanStatus } from "../deliveryPlanService";
 import { SettingsModel } from "../models/settingsModel";
-import { haversineKm, round } from "../utils/geo";
-import { HttpError } from "../utils/http";
+import { haversineKm, round } from "../distanceCalculator";
+import { HttpError } from "../errorHandler";
 import {
     dateOrToday,
     isValidDateStr,
@@ -15,7 +15,7 @@ import {
     requireLatLng,
     requireNumber,
     requireText,
-} from "../utils/validate";
+} from "../validation";
 
 const ORDER_WITH_CUSTOMER = `
     SELECT o.*, c.name AS customer_name, c.phone AS customer_phone, c.address AS customer_address,

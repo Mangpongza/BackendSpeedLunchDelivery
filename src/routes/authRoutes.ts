@@ -1,6 +1,6 @@
 import express from "express";
 import { riderLogin } from "../controllers/authController";
-import { requireRider } from "../middleware/auth";
+import { requireRider } from "../riderAuth";
 import { deliverMyStop, getMe, getMyJobByCode, getMyJobs, startMyJob } from "../controllers/riderJobController";
 
 // /api/auth

@@ -1,9 +1,9 @@
 import { Request, Response } from "express";
 import { db } from "../config/dbconnect";
-import { createRiderToken } from "../middleware/auth";
+import { createRiderToken } from "../riderAuth";
 import { RiderModel } from "../models/riderModel";
-import { HttpError } from "../utils/http";
-import { normalizePhone } from "../utils/validate";
+import { HttpError } from "../errorHandler";
+import { normalizePhone } from "../validation";
 
 // POST /api/auth/rider-login  { "phone": "0810000001" }
 // ไรเดอร์ล็อกอินด้วยเบอร์โทรที่ร้านลงทะเบียนไว้ ได้ token ไปใช้กับเส้น /api/me/*

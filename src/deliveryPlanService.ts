@@ -1,7 +1,7 @@
 import type { Pool } from "mysql2/promise";
 import { RowDataPacket } from "mysql2";
-import { db } from "../config/dbconnect";
-import { HttpError } from "../utils/http";
+import { db } from "./config/dbconnect";
+import { HttpError } from "./errorHandler";
 
 type Queryable = Pick<Pool, "query">;
 

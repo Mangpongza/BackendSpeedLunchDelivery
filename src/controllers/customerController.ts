@@ -2,10 +2,10 @@ import { Request, Response } from "express";
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import { db } from "../config/dbconnect";
 import { CustomerModel } from "../models/customerModel";
-import { assertInServiceArea, getSettings } from "../services/settingsService";
-import { haversineKm, round } from "../utils/geo";
-import { HttpError } from "../utils/http";
-import { normalizePhone, requireId, requireLatLng, requireNumber, requireText } from "../utils/validate";
+import { assertInServiceArea, getSettings } from "../shopSettingsService";
+import { haversineKm, round } from "../distanceCalculator";
+import { HttpError } from "../errorHandler";
+import { normalizePhone, requireId, requireLatLng, requireNumber, requireText } from "../validation";
 
 /** ตรวจข้อมูลลูกค้าจาก body (ใช้ทั้งเพิ่มและแก้ไข) */
 export async function parseCustomerBody(body: any) {
