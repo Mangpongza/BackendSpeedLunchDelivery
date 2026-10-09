@@ -3,6 +3,8 @@ import dotenv from 'dotenv';
 
 dotenv.config()
 
+const useSsl = process.env.DB_SSL === 'true' || Boolean(process.env.DB_HOST?.includes('aivencloud.com'));
+
 export const db = createPool({
     connectionLimit: 10,
     host: process.env.DB_HOST ?? '127.0.0.1',
@@ -14,4 +16,5 @@ export const db = createPool({
     dateStrings: true,
     // DECIMAL คืนเป็น number แทน string
     decimalNumbers: true,
+    ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
 });
