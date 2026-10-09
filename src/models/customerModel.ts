@@ -1,8 +1,8 @@
 export interface CustomerModel {
-    id:         string;
+    id:         number;
     name:       string;
     phone:      string;
     address:    string;
-    latitude:   string;
-    longitude:  string;
+    latitude:   number;
+    longitude:  number;
 }

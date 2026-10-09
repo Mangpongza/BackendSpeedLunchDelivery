@@ -1,34 +1,158 @@
 @baseUrl = http://localhost:3000
+@date = 2026-10-08
 @customerId = 1
+@orderId = 1
+@riderId = 1
 @planId = 1
-@jobCode = REPLACE_FROM_JOBS
+@jobCode = JOB000001-01
+# วาง token จาก rider-login ตรงนี้
+@token = PASTE_TOKEN_HERE
 
-### Shop
-GET {{baseUrl}}/api/route/shop
+### Health
+GET {{baseUrl}}/api/health
 
-### Customer (copy last_id from response)
+############ ตั้งค่าร้าน ############
+
+### อ่านค่าร้าน
+GET {{baseUrl}}/api/settings
+
+### แก้ค่าร้าน (ส่งเฉพาะที่แก้)
+PUT {{baseUrl}}/api/settings
+Content-Type: application/json
+
+{"box_price":65,"service_radius_km":10}
+
+############ ลูกค้า ############
+
+### เพิ่มลูกค้า
 POST {{baseUrl}}/api/customer
 Content-Type: application/json
 
 {"name":"ลูกค้าทดสอบ","phone":"0800000000","address":"หน้ามหาวิทยาลัย","latitude":16.247,"longitude":103.251}
 
-### Order
+### ค้นลูกค้าจากเบอร์ (ลูกค้าเก่า)
+GET {{baseUrl}}/api/customer/phone/0800000000
+
+### ค้นชื่อ/เบอร์บางส่วน
+GET {{baseUrl}}/api/customer/search/fields?phone=0800
+
+### ลูกค้าใกล้พิกัด
+GET {{baseUrl}}/api/customer/nearby?latitude=16.2462&longitude=103.2501&radius_km=2
+
+### แก้ไขลูกค้า
+PUT {{baseUrl}}/api/customer/{{customerId}}
+Content-Type: application/json
+
+{"name":"ลูกค้าทดสอบ (แก้)","phone":"0800000000","address":"หอพัก","latitude":16.248,"longitude":103.252}
+
+### ประวัติออเดอร์ลูกค้า
+GET {{baseUrl}}/api/customer/{{customerId}}/orders
+
+############ ออเดอร์ ############
+
+### ฟอร์มเจ้าของร้าน: ลูกค้า + ออเดอร์ ในครั้งเดียว
+POST {{baseUrl}}/api/order/quick
+Content-Type: application/json
+
+{"name":"สมชาย","phone":"0899999999","address":"ตลาดน้อย","latitude":16.252,"longitude":103.245,"quantity":3,"order_date":"{{date}}"}
+
+### เพิ่มออเดอร์ให้ลูกค้าที่มีอยู่
 POST {{baseUrl}}/api/order
 Content-Type: application/json
 
-{"customer_id":{{customerId}},"quantity":2,"order_date":"2026-10-08"}
+{"customer_id":{{customerId}},"quantity":2,"order_date":"{{date}}"}
 
-### Calculate and save plan (requires a rider in DB)
+### สร้างออเดอร์ทดสอบ 20 รายการ
+POST {{baseUrl}}/api/order/random
+Content-Type: application/json
+
+{"amount":20,"order_date":"{{date}}"}
+
+### รายการออเดอร์ของวัน
+GET {{baseUrl}}/api/order?date={{date}}&status=pending
+
+### แก้ออเดอร์
+PUT {{baseUrl}}/api/order/{{orderId}}
+Content-Type: application/json
+
+{"quantity":1}
+
+### ยกเลิกออเดอร์
+DELETE {{baseUrl}}/api/order/{{orderId}}
+
+### ล้างออเดอร์ทดสอบ
+DELETE {{baseUrl}}/api/order/demo
+
+############ ไรเดอร์ (เจ้าของร้าน) ############
+
+### รายชื่อไรเดอร์
+GET {{baseUrl}}/api/riders?date={{date}}
+
+### เพิ่มไรเดอร์
+POST {{baseUrl}}/api/riders
+Content-Type: application/json
+
+{"name":"ไรเดอร์ 6","phone":"0810000006"}
+
+### แก้ไรเดอร์
+PUT {{baseUrl}}/api/riders/{{riderId}}
+Content-Type: application/json
+
+{"name":"ไรเดอร์ 1","phone":"0810000001"}
+
+############ จัดเส้นทาง ############
+
+### ออเดอร์รอส่ง
+GET {{baseUrl}}/api/route/pending?date={{date}}
+
+### กดปุ่มจัดเส้นทาง
 POST {{baseUrl}}/api/route/calculate
 Content-Type: application/json
 
-{"delivery_date":"2026-10-08","rider_count":1}
+{"delivery_date":"{{date}}","rider_count":1}
 
-### Plan
+### แผนล่าสุดของวัน (แดชบอร์ดแผนที่)
+GET {{baseUrl}}/api/route/plans/latest?date={{date}}
+
+### รายการแผน
+GET {{baseUrl}}/api/route/plans?date={{date}}
+
+### รายละเอียดแผน
 GET {{baseUrl}}/api/route/plans/{{planId}}
 
-### Jobs
-GET {{baseUrl}}/api/jobs
+### ยกเลิกแผน
+DELETE {{baseUrl}}/api/route/plans/{{planId}}
 
-### Job detail
+### ค้นใบงาน
+GET {{baseUrl}}/api/jobs?date={{date}}
+
+### รายละเอียดใบงาน
 GET {{baseUrl}}/api/jobs/{{jobCode}}
+
+############ หน้าจอไรเดอร์ ############
+
+### ล็อกอินไรเดอร์ด้วยเบอร์โทร (คัดลอก token ไปใส่ @token ด้านบน)
+POST {{baseUrl}}/api/auth/rider-login
+Content-Type: application/json
+
+{"phone":"0810000001"}
+
+### ข้อมูลของฉัน
+GET {{baseUrl}}/api/me
+Authorization: Bearer {{token}}
+
+### ใบงานของฉันในวันนั้น
+GET {{baseUrl}}/api/me/jobs?date={{date}}
+Authorization: Bearer {{token}}
+
+### ใบงาน 1 ใบ พร้อมข้อความสรุปจุดส่ง
+GET {{baseUrl}}/api/me/jobs/{{jobCode}}
+Authorization: Bearer {{token}}
+
+### เริ่มออกส่ง
+PATCH {{baseUrl}}/api/me/jobs/{{jobCode}}/start
+Authorization: Bearer {{token}}
+
+### ส่งจุดที่ 1 แล้ว
+PATCH {{baseUrl}}/api/me/jobs/{{jobCode}}/stops/1/deliver
+Authorization: Bearer {{token}}
