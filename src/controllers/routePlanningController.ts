@@ -1,503 +1,316 @@
 import { Request, Response } from "express";
-import { db } from "../config/dbconnect";
 import { ResultSetHeader, RowDataPacket } from "mysql2";
+import { db } from "../config/dbconnect";
+import { CalculatePlanBody, PendingOrderRow } from "../models/deliveryPlanModel";
+import { BOX_CAPACITY_PER_RIDER, LATE_PENALTY_PER_ORDER } from "../models/settingsModel";
+import { PlannerError, planRoutes } from "../services/routePlanner";
+import { getPlanDetail } from "../services/planService";
+import { distanceFromShopKm, getSettings } from "../services/settingsService";
+import { round } from "../utils/geo";
+import { HttpError } from "../utils/http";
 import {
-  CalculatePlanBody,
-  PendingOrderRow,
-  RiderModel,
-  ShopModel,
-} from "../models/deliveryPlanModel";
+    dateOrToday,
+    isValidDateStr,
+    isValidTimeStr,
+    minutesToTimeString,
+    normalizeTime,
+    requireId,
+    timeToMinutes,
+} from "../utils/validate";
 
-// ---------- helpers ----------
-function toNum(v: string | number | unknown, fallback = 0): number {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-function timeToMinutes(t: string): number {
-  const parts = String(t).split(":");
-  const h = Number(parts[0] ?? 0);
-  const m = Number(parts[1] ?? 0);
-  const s = Number(parts[2] ?? 0);
-  return h * 60 + m + Math.floor(s / 60);
-}
-
-function minutesToTimeString(totalMinutes: number): string {
-  const m = ((Math.round(totalMinutes) % (24 * 60)) + 24 * 60) % (24 * 60);
-  const h = Math.floor(m / 60);
-  const mm = m % 60;
-  return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00`;
-}
-
-function isValidDateStr(s: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
-}
-
-function isValidTimeStr(s: string): boolean {
-  return /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(s);
-}
-
-function normalizeTime(t: string): string {
-  const p = String(t).split(":");
-  const h = (p[0] ?? "11").padStart(2, "0");
-  const m = (p[1] ?? "30").padStart(2, "0");
-  const s = (p[2] ?? "00").padStart(2, "0");
-  return `${h}:${m}:${s}`;
-}
-
-// ---------- GET /api/route/shop ----------
-export const getShop = async (_req: Request, res: Response) => {
-  try {
-    const [rows] = await db.query("SELECT * FROM shops WHERE id = 1");
-    const list = rows as ShopModel[];
-    if (list.length === 0) return res.status(404).json({ error: "Shop not found" });
-    return res.json(list[0]);
-  } catch (err: unknown) {
-    console.error("getShop:", err);
-    return res.status(500).json({ error: "Database error" });
-  }
-};
-
-// ---------- GET /api/route/riders ----------
-export const getRiders = async (_req: Request, res: Response) => {
-  try {
-    const [rows] = await db.query(
-      "SELECT id, name, phone FROM riders ORDER BY id"
-    );
-    return res.json(rows as RiderModel[]);
-  } catch (err: unknown) {
-    console.error("getRiders:", err);
-    return res.status(500).json({ error: "Database error" });
-  }
-};
+const PENDING_ORDER_SQL = `
+    SELECT o.id, o.customer_id, o.quantity, o.order_date,
+           c.name AS customer_name, c.phone, c.address, c.latitude, c.longitude
+    FROM orders o
+    JOIN customers c ON c.id = o.customer_id
+    WHERE o.status = 'pending' AND o.order_date = ?
+    ORDER BY o.id`;
 
 // ---------- GET /api/route/pending?date=YYYY-MM-DD ----------
 export const getPendingOrders = async (req: Request, res: Response) => {
-  try {
-    const date = String(req.query.date ?? "").trim();
-    let sql = `
-      SELECT o.id, o.customer_id, o.quantity,
-             DATE_FORMAT(o.order_date, '%Y-%m-%d') AS order_date,
-             c.name AS customer_name, c.phone, c.address,
-             c.latitude, c.longitude
-      FROM orders o
-      JOIN customers c ON c.id = o.customer_id
-      WHERE o.status = 'pending'`;
-    const params: unknown[] = [];
-    if (date) {
-      if (!isValidDateStr(date)) return res.status(400).json({ error: "Invalid date format (YYYY-MM-DD)" });
-      sql += ` AND DATE(o.order_date) = ?`;
-      params.push(date);
-    }
-    sql += ` ORDER BY o.id`;
-    const [rows] = await db.query(sql, params);
-    return res.json(rows);
-  } catch (err: unknown) {
-    console.error("getPendingOrders:", err);
-    return res.status(500).json({ error: "Database error" });
-  }
+    const date = dateOrToday(req.query.date);
+    const settings = await getSettings();
+    const [rows] = await db.query(PENDING_ORDER_SQL, [date]);
+    const orders = (rows as PendingOrderRow[]).map((o) => ({
+        ...o,
+        distance_from_shop_km: distanceFromShopKm(settings, Number(o.latitude), Number(o.longitude)),
+    }));
+    return res.json({
+        delivery_date: date,
+        total_orders: orders.length,
+        total_boxes: orders.reduce((s, o) => s + Number(o.quantity), 0),
+        min_riders_needed: Math.max(
+            Math.ceil(orders.length / settings.max_orders_per_rider),
+            Math.ceil(orders.reduce((s, o) => s + Number(o.quantity), 0) / BOX_CAPACITY_PER_RIDER)
+        ),
+        orders,
+    });
 };
 
 // ---------- POST /api/route/calculate ----------
+// ปุ่ม "จัดเส้นทาง": คำนวณ + บันทึกแผน + สร้างใบงานไรเดอร์
+// ถ้าวันนั้นมีแผนเดิมอยู่และยังไม่มีใครเริ่มส่ง แผนเดิมจะถูกยกเลิกแล้วสร้าง revision ใหม่
 export const calculatePlan = async (req: Request, res: Response) => {
-  const body = req.body as CalculatePlanBody;
-  const deliveryDate = String(body.delivery_date ?? "").trim();
-  const requestedRiders = Number(body.rider_count ?? 3);
-  const departureTime = normalizeTime(String(body.departure_time ?? "11:30:00"));
-  const deadlineTime = normalizeTime(String(body.deadline_time ?? "12:30:00"));
-  const speedKmh = Number(body.speed_kmh ?? 30);
-  const serviceMinutes = Number(body.service_minutes ?? 2);
+    const body = (req.body ?? {}) as CalculatePlanBody;
+    const deliveryDate = dateOrToday(body.delivery_date, "delivery_date");
+    const minRiders = Number(body.rider_count ?? 1);
+    const departureTime = normalizeTime(String(body.departure_time ?? "11:30:00"));
+    const deadlineTime = normalizeTime(String(body.deadline_time ?? "12:30:00"));
+    const speedKmh = Number(body.speed_kmh ?? 30);
 
-  if (deliveryDate && !isValidDateStr(deliveryDate)) {
-    return res.status(400).json({ error: "Invalid delivery_date (YYYY-MM-DD)" });
-  }
-  if (!Number.isInteger(requestedRiders) || requestedRiders < 1 || requestedRiders > 10) {
-    return res.status(400).json({ error: "rider_count must be between 1 and 10" });
-  }
-  if (!isValidTimeStr(departureTime) || !isValidTimeStr(deadlineTime)) {
-    return res.status(400).json({ error: "Invalid time format (HH:MM:SS)" });
-  }
-  if (timeToMinutes(deadlineTime) <= timeToMinutes(departureTime)) {
-    return res.status(400).json({ error: "deadline_time must be after departure_time" });
-  }
-  if (!(speedKmh > 0 && speedKmh <= 120)) {
-    return res.status(400).json({ error: "speed_kmh must be between 1 and 120" });
-  }
-  if (!Number.isInteger(serviceMinutes) || serviceMinutes < 0 || serviceMinutes > 30) {
-    return res.status(400).json({ error: "service_minutes must be between 0 and 30" });
-  }
-
-  try {
-    // 1. ร้าน
-    const [shopRows] = await db.query("SELECT * FROM shops WHERE id = 1");
-    const shops = shopRows as ShopModel[];
-    if (shops.length === 0) return res.status(500).json({ error: "Shop not configured" });
-    const shop = shops[0]!;
-    const shopLat = toNum(shop.latitude);
-    const shopLng = toNum(shop.longitude);
-    const pricePerBox = toNum(shop.price_per_box, 65);
-    const costPerBox = toNum(shop.cost_per_box, 40);
-    const baseFee = toNum(shop.rider_base_fee, 15);
-    const perBoxKm = toNum(shop.rider_per_box_km, 2);
-
-    // 2. ออเดอร์ pending (กรองตามวันที่ถ้าส่งมา)
-    let orderSql = `
-      SELECT o.id, o.customer_id, o.quantity,
-             DATE_FORMAT(o.order_date, '%Y-%m-%d') AS order_date,
-             c.name AS customer_name, c.phone, c.address,
-             c.latitude, c.longitude
-      FROM orders o
-      JOIN customers c ON c.id = o.customer_id
-      WHERE o.status = 'pending'`;
-    const orderParams: unknown[] = [];
-    if (deliveryDate) {
-      orderSql += ` AND DATE(o.order_date) = ?`;
-      orderParams.push(deliveryDate);
+    if (!Number.isInteger(minRiders) || minRiders < 1 || minRiders > 50) {
+        throw new HttpError(400, "rider_count must be between 1 and 50");
     }
-    orderSql += ` ORDER BY o.id`;
-    const [orderRows] = await db.query(orderSql, orderParams);
-    const orders = orderRows as PendingOrderRow[];
-    if (orders.length === 0) {
-      return res.status(400).json({ error: "No pending orders for this date" });
+    if (!isValidTimeStr(departureTime) || !isValidTimeStr(deadlineTime)) {
+        throw new HttpError(400, "Invalid time format (HH:MM:SS)");
     }
-    const effectiveDate =
-      deliveryDate || String((orders[0] as unknown as { order_date: string }).order_date ?? new Date().toISOString().slice(0, 10));
-
-    // 3. ไรเดอร์
-    const [riderRows] = await db.query(
-      "SELECT id, name, phone FROM riders ORDER BY id"
-    );
-    const allRiders = riderRows as RiderModel[];
-    if (allRiders.length === 0) return res.status(400).json({ error: "No riders available" });
-
-    // กติกา: 1 เส้นทางห้ามเกิน 3 จุด (chk_stop_sequence) -> ต้องมีไรเดอร์อย่างน้อย ceil(orders/3)
-    const minRequired = Math.ceil(orders.length / 3);
-    const effectiveRiderCount = Math.max(requestedRiders, minRequired);
-    if (effectiveRiderCount > allRiders.length) {
-      return res.status(400).json({
-        error: `Not enough riders (need ${effectiveRiderCount}, have ${allRiders.length})`,
-      });
+    if (timeToMinutes(deadlineTime) <= timeToMinutes(departureTime)) {
+        throw new HttpError(400, "deadline_time must be after departure_time");
     }
-    const riders = allRiders.slice(0, effectiveRiderCount);
-
-    // 4. แบ่งออเดอร์: เรียงตามมุมจากร้าน แล้วตัดเป็นช่วงๆ แล้วจัดลำดับ nearest-neighbor ในแต่ละช่วง
-    type Scored = PendingOrderRow & { angle: number; distFromShop: number };
-    const scored: Scored[] = orders.map((o) => {
-      const lat = toNum(o.latitude);
-      const lng = toNum(o.longitude);
-      return {
-        ...o,
-        angle: Math.atan2(lat - shopLat, lng - shopLng),
-        distFromShop: haversineKm(shopLat, shopLng, lat, lng),
-      };
-    });
-    scored.sort((a, b) => a.angle - b.angle);
-
-    const chunks: Scored[][] = riders.map(() => []);
-    // แจกแบบ round-robin ตามมุม เพื่อให้แต่ละคนได้โซนใกล้กันและไม่เกิน 3 จุด
-    // วิธี: ตัดเป็นช่วงต่อเนื่อง chunkSize = ceil(n / k)
-    const chunkSize = Math.ceil(scored.length / riders.length);
-    riders.forEach((_, i) => {
-      chunks[i] = scored.slice(i * chunkSize, (i + 1) * chunkSize);
-    });
-
-    // nearest-neighbor ภายในแต่ละไรเดอร์
-    interface PlannedStop extends Scored {
-      seqDist: number; // ระยะจากจุดก่อนหน้า
+    if (!(speedKmh > 0 && speedKmh <= 120)) {
+        throw new HttpError(400, "speed_kmh must be between 1 and 120");
     }
-    const plannedRoutes: PlannedStop[][] = chunks.map((chunk) => {
-      const remaining = [...chunk];
-      const ordered: PlannedStop[] = [];
-      let curLat = shopLat;
-      let curLng = shopLng;
-      while (remaining.length > 0) {
-        let best = 0;
-        let bestD = Number.POSITIVE_INFINITY;
-        remaining.forEach((o, idx) => {
-          const d = haversineKm(curLat, curLng, toNum(o.latitude), toNum(o.longitude));
-          if (d < bestD) {
-            bestD = d;
-            best = idx;
-          }
-        });
-        const picked = remaining.splice(best, 1)[0]!;
-        ordered.push({ ...picked, seqDist: bestD });
-        curLat = toNum(picked.latitude);
-        curLng = toNum(picked.longitude);
-      }
-      return ordered;
-    });
 
-    // 5. คำนวณเวลา/ต้นทุน
-    const departureMin = timeToMinutes(departureTime);
-    const deadlineMin = timeToMinutes(deadlineTime);
-
-    let totalBoxes = 0;
-    let totalDist = 0;
-    let totalDeliveryCost = 0;
-    let lastArrivalMin = departureMin;
-
-    const routeSummaries = plannedRoutes.map((stops, i) => {
-      const rider = riders[i]!;
-      const boxes = stops.reduce((s, o) => s + Number(o.quantity), 0);
-      const dist = stops.reduce((s, o) => s + o.seqDist, 0);
-      const travelMin = (dist / speedKmh) * 60;
-      const duration = Math.round(travelMin + serviceMinutes * stops.length);
-      // arrival แต่ละจุด
-      let acc = 0;
-      let prevLat = shopLat;
-      let prevLng = shopLng;
-      const arrivals: string[] = [];
-      stops.forEach((o) => {
-        const d = haversineKm(prevLat, prevLng, toNum(o.latitude), toNum(o.longitude));
-        acc += (d / speedKmh) * 60 + serviceMinutes;
-        arrivals.push(minutesToTimeString(departureMin + acc));
-        prevLat = toNum(o.latitude);
-        prevLng = toNum(o.longitude);
-      });
-      const lastArr = arrivals.length > 0 ? timeToMinutes(arrivals[arrivals.length - 1]!) : departureMin;
-      const cost = baseFee + perBoxKm * boxes * dist;
-      totalBoxes += boxes;
-      totalDist += dist;
-      totalDeliveryCost += cost;
-      if (lastArr > lastArrivalMin) lastArrivalMin = lastArr;
-      return { rider, stops, boxes, dist, duration, arrivals, cost };
-    });
-
-    const revenue = totalBoxes * pricePerBox;
-    const foodCost = totalBoxes * costPerBox;
-    const profit = revenue - foodCost - totalDeliveryCost;
-    const lastArrivalTime = minutesToTimeString(lastArrivalMin);
-    const allOnTime = lastArrivalMin <= deadlineMin ? 1 : 0;
-
-    // 6. บันทึกลง DB (transaction)
-    const poolConn = await db.getConnection();
+    const conn = await db.getConnection();
+    let planId: number;
+    let replacedPlans: number[] = [];
     try {
-      await poolConn.beginTransaction();
-
-      const [planResult] = await poolConn.query<ResultSetHeader>(
-        `INSERT INTO delivery_plans
-         (delivery_date, departure_time, deadline_time,
-          rider_count, total_orders, total_boxes, distance_km,
-          delivery_cost, revenue, food_cost, profit,
-          last_arrival_time, all_on_time)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          effectiveDate,
-          departureTime,
-          deadlineTime,
-          effectiveRiderCount,
-          orders.length,
-          totalBoxes,
-          totalDist.toFixed(2),
-          totalDeliveryCost.toFixed(2),
-          revenue.toFixed(2),
-          foodCost.toFixed(2),
-          profit.toFixed(2),
-          lastArrivalTime,
-          allOnTime,
-        ]
-      );
-      const planId = planResult.insertId;
-
-      const routesOut: unknown[] = [];
-      for (let i = 0; i < routeSummaries.length; i++) {
-        const rs = routeSummaries[i]!;
-        if (rs.stops.length === 0) continue;
-        const jobCode = `JOB${String(planId).padStart(6, "0")}-${String(i + 1).padStart(2, "0")}`;
-        const geometry = [
-          [shopLat, shopLng],
-          ...rs.stops.map((s) => [toNum(s.latitude), toNum(s.longitude)]),
-        ];
-        const navUrl =
-          `https://www.google.com/maps/dir/` +
-          [`${shopLat},${shopLng}`, ...rs.stops.map((s) => `${s.latitude},${s.longitude}`)].join("/");
-
-        const [routeResult] = await poolConn.query<ResultSetHeader>(
-          `INSERT INTO rider_routes
-           (plan_id, rider_id, rider_number, job_code,
-            total_boxes, distance_km, duration_minutes, delivery_cost, geometry, navigation_url)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            planId,
-            rs.rider.id,
-            i + 1,
-            jobCode,
-            rs.boxes,
-            rs.dist.toFixed(2),
-            rs.duration,
-            rs.cost.toFixed(2),
-            JSON.stringify(geometry),
-            navUrl,
-          ]
-        );
-        const routeId = routeResult.insertId;
-
-        for (let s = 0; s < rs.stops.length; s++) {
-          const st = rs.stops[s]!;
-          await poolConn.query(
-            `INSERT INTO route_stops
-             (route_id, order_id, stop_sequence, customer_name, phone, address,
-              latitude, longitude, quantity, arrival_time, distance_from_previous_km)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              routeId,
-              st.id,
-              s + 1,
-              st.customer_name,
-              st.phone,
-              st.address ?? "",
-              st.latitude,
-              st.longitude,
-              st.quantity,
-              rs.arrivals[s],
-              (st.seqDist as number).toFixed(2),
-            ]
-          );
+        await conn.beginTransaction();
+        const settings = await getSettings(conn);
+        const serviceMinutes = body.service_minutes !== undefined
+            ? Number(body.service_minutes)
+            : settings.service_minutes_per_stop;
+        if (!Number.isInteger(serviceMinutes) || serviceMinutes < 0 || serviceMinutes > 30) {
+            throw new HttpError(400, "service_minutes must be between 0 and 30");
         }
 
-        routesOut.push({
-          route_id: routeId,
-          rider_id: rs.rider.id,
-          rider_number: i + 1,
-          rider_name: rs.rider.name,
-          rider_phone: rs.rider.phone,
-          total_boxes: rs.boxes,
-          distance_km: Number(rs.dist.toFixed(2)),
-          duration_minutes: rs.duration,
-          delivery_cost: Number(rs.cost.toFixed(2)),
-          job_code: jobCode,
-          navigation_url: navUrl,
-          geometry,
-          stops: rs.stops.map((st, si) => ({
-            order_id: st.id,
-            stop_sequence: si + 1,
-            customer_name: st.customer_name,
-            phone: st.phone,
-            address: st.address,
-            latitude: toNum(st.latitude),
-            longitude: toNum(st.longitude),
-            quantity: Number(st.quantity),
-            arrival_time: rs.arrivals[si],
-            distance_from_previous_km: Number((st.seqDist as number).toFixed(2)),
-          })),
-        });
-      }
+        // 1. แผนเดิมของวันนั้น
+        const [oldRows] = await conn.query<RowDataPacket[]>(
+            `SELECT p.id,
+                    (SELECT COUNT(*) FROM rider_routes rr JOIN route_stops rs ON rs.route_id = rr.id
+                     WHERE rr.plan_id = p.id AND rs.status = 'delivered') AS delivered_stops
+             FROM delivery_plans p
+             WHERE p.delivery_date = ? AND p.status <> 'cancelled'
+             FOR UPDATE`,
+            [deliveryDate]
+        );
+        if (oldRows.some((p) => Number(p.delivered_stops) > 0)) {
+            throw new HttpError(409, "Riders already started delivering today's plan, cannot recalculate");
+        }
+        replacedPlans = oldRows.map((p) => Number(p.id));
+        if (replacedPlans.length > 0) {
+            const ph = replacedPlans.map(() => "?").join(",");
+            await conn.query(`UPDATE delivery_plans SET status = 'cancelled' WHERE id IN (${ph})`, replacedPlans);
+            await conn.query(`UPDATE rider_routes SET status = 'cancelled' WHERE plan_id IN (${ph})`, replacedPlans);
+            await conn.query(
+                `UPDATE route_stops rs JOIN rider_routes rr ON rr.id = rs.route_id
+                 SET rs.status = 'cancelled' WHERE rr.plan_id IN (${ph}) AND rs.status = 'pending'`,
+                replacedPlans
+            );
+        }
 
-      await poolConn.commit();
+        // 2. ออเดอร์รอส่ง
+        const [orderRows] = await conn.query(`${PENDING_ORDER_SQL} FOR UPDATE`, [deliveryDate]);
+        const orders = (orderRows as PendingOrderRow[]).map((o) => ({
+            ...o,
+            id: Number(o.id),
+            quantity: Number(o.quantity),
+            latitude: Number(o.latitude),
+            longitude: Number(o.longitude),
+        }));
+        if (orders.length === 0) throw new HttpError(400, `No pending orders on ${deliveryDate}`);
 
-      return res.status(201).json({
-        plan_id: planId,
-        delivery_date: effectiveDate,
-        departure_time: departureTime,
-        deadline_time: deadlineTime,
-        rider_count: effectiveRiderCount,
-        total_orders: orders.length,
-        total_boxes: totalBoxes,
-        distance_km: Number(totalDist.toFixed(2)),
-        delivery_cost: Number(totalDeliveryCost.toFixed(2)),
-        revenue: Number(revenue.toFixed(2)),
-        food_cost: Number(foodCost.toFixed(2)),
-        profit: Number(profit.toFixed(2)),
-        last_arrival_time: lastArrivalTime,
-        all_on_time: allOnTime === 1,
-        shop: {
-          name: shop.name,
-          latitude: shopLat,
-          longitude: shopLng,
-        },
-        routes: routesOut,
-      });
-    } catch (txErr) {
-      await poolConn.rollback();
-      throw txErr;
+        // 3. ไรเดอร์ เรียงคนที่ได้งานน้อยใน 7 วันล่าสุดก่อน (กระจายงานให้ยุติธรรม)
+        const [riderRows] = await conn.query<RowDataPacket[]>(
+            `SELECT r.id, r.name, r.phone, COUNT(rr.id) AS recent_jobs
+             FROM riders r
+             LEFT JOIN rider_routes rr ON rr.rider_id = r.id AND rr.status <> 'cancelled'
+                  AND rr.plan_id IN (SELECT id FROM delivery_plans
+                                     WHERE delivery_date BETWEEN DATE_SUB(?, INTERVAL 7 DAY) AND ?)
+             GROUP BY r.id
+             ORDER BY recent_jobs ASC, r.id ASC`,
+            [deliveryDate, deliveryDate]
+        );
+        if (riderRows.length === 0) throw new HttpError(400, "No riders in the system, add riders first (POST /api/riders)");
+
+        // 4. คำนวณ
+        const departureMin = timeToMinutes(departureTime);
+        let plan;
+        try {
+            plan = planRoutes(orders, {
+                shopLat: settings.shop_latitude,
+                shopLng: settings.shop_longitude,
+                minRiders,
+                maxRiders: riderRows.length,
+                maxStopsPerRoute: settings.max_orders_per_rider,
+                boxCapacity: BOX_CAPACITY_PER_RIDER,
+                speedKmh,
+                serviceMinutes,
+                departureMin,
+                deadlineMin: timeToMinutes(deadlineTime),
+                baseFee: settings.rider_base_fee,
+                feePerKmPerBox: settings.rider_fee_per_km_per_box,
+                latePenalty: LATE_PENALTY_PER_ORDER,
+            });
+        } catch (e) {
+            if (e instanceof PlannerError) throw new HttpError(400, e.message);
+            throw e;
+        }
+
+        const revenue = plan.totalBoxes * settings.box_price;
+        const foodCost = plan.totalBoxes * settings.box_cost;
+        const profit = revenue - foodCost - plan.deliveryCost - plan.latePenalty;
+
+        // 5. บันทึก
+        const [revRows] = await conn.query<RowDataPacket[]>(
+            "SELECT COALESCE(MAX(revision), 0) + 1 AS next_revision FROM delivery_plans WHERE delivery_date = ?",
+            [deliveryDate]
+        );
+        const revision = Number(revRows[0]?.next_revision ?? 1);
+
+        const [planResult] = await conn.query<ResultSetHeader>(
+            `INSERT INTO delivery_plans
+             (settings_id, delivery_date, revision, status, departure_time, deadline_time,
+              rider_count, total_orders, total_boxes, distance_km, delivery_cost, revenue,
+              food_cost, late_orders, late_penalty, profit, last_arrival_time, all_on_time)
+             VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                settings.id, deliveryDate, revision, departureTime, deadlineTime,
+                plan.riderCount, orders.length, plan.totalBoxes, round(plan.distanceKm),
+                round(plan.deliveryCost), round(revenue), round(foodCost),
+                plan.lateOrders, round(plan.latePenalty), round(profit),
+                minutesToTimeString(plan.lastArrivalMin), plan.lateOrders === 0,
+            ]
+        );
+        planId = planResult.insertId;
+
+        for (let i = 0; i < plan.routes.length; i++) {
+            const route = plan.routes[i]!;
+            const rider = riderRows[i]!;
+            const jobCode = `JOB${String(planId).padStart(6, "0")}-${String(i + 1).padStart(2, "0")}`;
+            const points = [
+                [settings.shop_latitude, settings.shop_longitude],
+                ...route.stops.map((s) => [s.order.latitude, s.order.longitude]),
+                [settings.shop_latitude, settings.shop_longitude], // ส่งเสร็จกลับร้าน
+            ];
+            const navigationUrl = "https://www.google.com/maps/dir/" + points.map((p) => `${p[0]},${p[1]}`).join("/");
+
+            const [routeResult] = await conn.query<ResultSetHeader>(
+                `INSERT INTO rider_routes
+                 (plan_id, rider_id, rider_number, job_code, total_boxes, distance_km,
+                  duration_minutes, delivery_cost, geometry, navigation_url, status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'assigned')`,
+                [
+                    planId, rider.id, i + 1, jobCode, route.totalBoxes, round(route.distanceKm),
+                    Math.round(route.durationMinutes), round(route.deliveryCost),
+                    JSON.stringify(points), navigationUrl,
+                ]
+            );
+
+            for (const stop of route.stops) {
+                await conn.query(
+                    `INSERT INTO route_stops
+                     (route_id, order_id, stop_sequence, distance_from_previous_km, arrival_time, status)
+                     VALUES (?, ?, ?, ?, ?, 'pending')`,
+                    [
+                        routeResult.insertId, stop.order.id, stop.sequence,
+                        round(stop.distanceFromPreviousKm), minutesToTimeString(stop.arrivalMin),
+                    ]
+                );
+            }
+        }
+
+        await conn.commit();
+    } catch (err) {
+        await conn.rollback();
+        throw err;
     } finally {
-      poolConn.release();
+        conn.release();
     }
-  } catch (err: unknown) {
-    console.error("calculatePlan:", err);
-    const msg = err instanceof Error ? err.message : String(err);
-    return res.status(500).json({ error: "Database error", details: msg });
-  }
+
+    const detail = await getPlanDetail(planId);
+    return res.status(201).json({ ...detail, replaced_plan_ids: replacedPlans });
 };
 
-// ---------- GET /api/route/plans ----------
-export const getPlans = async (_req: Request, res: Response) => {
-  try {
-    const [rows] = await db.query(
-      `SELECT id, DATE_FORMAT(delivery_date, '%Y-%m-%d') AS delivery_date,
-              departure_time, deadline_time, rider_count, total_orders, total_boxes,
-              distance_km, delivery_cost, revenue, food_cost, profit,
-              last_arrival_time, all_on_time, created_at
-       FROM delivery_plans ORDER BY created_at DESC LIMIT 20`
-    );
+// ---------- GET /api/route/plans?date=&status= ----------
+export const getPlans = async (req: Request, res: Response) => {
+    const date = String(req.query.date ?? "").trim();
+    const status = String(req.query.status ?? "").trim();
+    const params: unknown[] = [];
+    let sql = "SELECT * FROM delivery_plans WHERE 1=1";
+    if (date) {
+        if (!isValidDateStr(date)) throw new HttpError(400, "Invalid date (YYYY-MM-DD)");
+        sql += " AND delivery_date = ?";
+        params.push(date);
+    }
+    if (status) {
+        if (!["active", "completed", "cancelled"].includes(status)) {
+            throw new HttpError(400, "status must be active, completed or cancelled");
+        }
+        sql += " AND status = ?";
+        params.push(status);
+    }
+    sql += " ORDER BY delivery_date DESC, revision DESC LIMIT 50";
+    const [rows] = await db.query(sql, params);
     return res.json(rows);
-  } catch (err: unknown) {
-    console.error("getPlans:", err);
-    return res.status(500).json({ error: "Database error" });
-  }
+};
+
+// ---------- GET /api/route/plans/latest?date= ----------
+// แผนที่ใช้งานล่าสุดของวัน (หน้าแดชบอร์ดแผนที่)
+export const getLatestPlan = async (req: Request, res: Response) => {
+    const date = dateOrToday(req.query.date);
+    const [rows] = await db.query<RowDataPacket[]>(
+        `SELECT id FROM delivery_plans
+         WHERE delivery_date = ? AND status <> 'cancelled'
+         ORDER BY revision DESC LIMIT 1`,
+        [date]
+    );
+    if (rows.length === 0) throw new HttpError(404, `No plan for ${date}`);
+    return res.json(await getPlanDetail(Number(rows[0]!.id)));
 };
 
 // ---------- GET /api/route/plans/:id ----------
 export const getPlanById = async (req: Request, res: Response) => {
-  try {
-    const id = req.params.id;
-    const [planRows] = await db.query(
-      `SELECT id, DATE_FORMAT(delivery_date, '%Y-%m-%d') AS delivery_date,
-              departure_time, deadline_time,
-              rider_count, total_orders, total_boxes, distance_km, delivery_cost,
-              revenue, food_cost, profit, last_arrival_time, all_on_time
-       FROM delivery_plans WHERE id = ?`,
-      [id]
-    );
-    const plans = planRows as RowDataPacket[];
-    if (plans.length === 0) return res.status(404).json({ error: "Plan not found" });
+    return res.json(await getPlanDetail(requireId(req.params.id)));
+};
 
-    const [routeRows] = await db.query(
-      `SELECT rr.*, r.name AS rider_name, r.phone AS rider_phone
-       FROM rider_routes rr
-       JOIN riders r ON r.id = rr.rider_id
-       WHERE rr.plan_id = ? ORDER BY rr.rider_number`,
-      [id]
-    );
-    const routes = routeRows as RowDataPacket[];
+// ---------- DELETE /api/route/plans/:id ----------
+// ยกเลิกแผน (ไม่ลบจริง เก็บเป็นประวัติ) ทำได้เมื่อยังไม่มีใครส่งของ
+export const cancelPlan = async (req: Request, res: Response) => {
+    const id = requireId(req.params.id);
+    const conn = await db.getConnection();
+    try {
+        await conn.beginTransaction();
+        const [rows] = await conn.query<RowDataPacket[]>(
+            `SELECT p.status,
+                    (SELECT COUNT(*) FROM rider_routes rr JOIN route_stops rs ON rs.route_id = rr.id
+                     WHERE rr.plan_id = p.id AND rs.status = 'delivered') AS delivered_stops
+             FROM delivery_plans p WHERE p.id = ? FOR UPDATE`,
+            [id]
+        );
+        const plan = rows[0];
+        if (!plan) throw new HttpError(404, "Plan not found");
+        if (plan.status === "cancelled") throw new HttpError(400, "Plan already cancelled");
+        if (Number(plan.delivered_stops) > 0) throw new HttpError(409, "Plan already has delivered stops");
 
-    for (const r of routes) {
-      const [stopRows] = await db.query(
-        `SELECT order_id, stop_sequence, customer_name, phone, address,
-                latitude, longitude, quantity, arrival_time, distance_from_previous_km
-         FROM route_stops WHERE route_id = ? ORDER BY stop_sequence`,
-        [(r as { id: number }).id]
-      );
-      (r as Record<string, unknown>).stops = stopRows;
-      // parse geometry ถ้าเป็น string
-      const g = (r as Record<string, unknown>).geometry;
-      if (typeof g === "string") {
-        try {
-          (r as Record<string, unknown>).geometry = JSON.parse(g);
-        } catch {
-          /* keep raw */
-        }
-      }
+        await conn.query("UPDATE delivery_plans SET status = 'cancelled' WHERE id = ?", [id]);
+        await conn.query("UPDATE rider_routes SET status = 'cancelled' WHERE plan_id = ?", [id]);
+        await conn.query(
+            `UPDATE route_stops rs JOIN rider_routes rr ON rr.id = rs.route_id
+             SET rs.status = 'cancelled' WHERE rr.plan_id = ? AND rs.status = 'pending'`,
+            [id]
+        );
+        await conn.commit();
+    } catch (err) {
+        await conn.rollback();
+        throw err;
+    } finally {
+        conn.release();
     }
+    return res.json({ message: "Plan cancelled", plan_id: id });
+};
 
-    return res.json({ ...(plans[0] as object), routes });
-  } catch (err: unknown) {
-    console.error("getPlanById:", err);
-    return res.status(500).json({ error: "Database error" });
-  }
+// ---------- GET /api/route/shop (เส้นเดิม คงไว้ให้หน้าบ้านเก่าใช้ได้) ----------
+export const getShop = async (_req: Request, res: Response) => {
+    return res.json(await getSettings());
 };

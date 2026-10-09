@@ -1,266 +1,156 @@
 import { Request, Response } from "express";
+import { ResultSetHeader, RowDataPacket } from "mysql2";
 import { db } from "../config/dbconnect";
 import { CustomerModel } from "../models/customerModel";
-import { ResultSetHeader } from "mysql2";
+import { assertInServiceArea, getSettings } from "../services/settingsService";
+import { haversineKm, round } from "../utils/geo";
+import { HttpError } from "../utils/http";
+import { normalizePhone, requireId, requireLatLng, requireNumber, requireText } from "../utils/validate";
 
-function calculateDistanceKm(
-    lat1: number,
-    lon1: number,
-    lat2: number,
-    lon2: number
-): number {
-    const earthRadiusKm = 6371;
-
-    const latDistance = (lat2 - lat1) * Math.PI / 180;
-    const lonDistance = (lon2 - lon1) * Math.PI / 180;
-
-    const a =
-        Math.sin(latDistance / 2) * Math.sin(latDistance / 2) +
-        Math.cos(lat1 * Math.PI / 180) *
-        Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(lonDistance / 2) *
-        Math.sin(lonDistance / 2);
-
-    const c = 2 * Math.atan2(
-        Math.sqrt(a),
-        Math.sqrt(1 - a)
-    );
-
-    return earthRadiusKm * c;
+/** ตรวจข้อมูลลูกค้าจาก body (ใช้ทั้งเพิ่มและแก้ไข) */
+export async function parseCustomerBody(body: any) {
+    const name = requireText(body?.name, "name", 120);
+    const phone = normalizePhone(body?.phone);
+    const address = String(body?.address ?? "").trim().slice(0, 500);
+    const { latitude, longitude } = requireLatLng(body?.latitude, body?.longitude);
+    const distance = assertInServiceArea(await getSettings(), latitude, longitude);
+    return { name, phone, address, latitude, longitude, distance_from_shop_km: distance };
 }
 
-export const getCustomers = async (req: Request, res: Response) => {
-    try {
-        const [rows] = await db.query('SELECT * FROM customers');
-        const customers = rows as CustomerModel[];
-        return res.json(customers);
-    } catch (err: any) {
-        console.error("Error in getCustomers:", err);
-        return res.status(500).json({
-            error: "Database error",
-            details: err?.message || String(err)
-        });
-    }
+// GET /api/customer
+export const getCustomers = async (_req: Request, res: Response) => {
+    const [rows] = await db.query("SELECT * FROM customers ORDER BY id");
+    return res.json(rows as CustomerModel[]);
 };
 
-export const getNearbyCustomers = async (
-    req: Request,
-    res: Response
-) => {
-    try {
-        const latitude = Number(req.query.latitude);
-        const longitude = Number(req.query.longitude);
+// GET /api/customer/nearby?latitude=&longitude=&radius_km=1
+export const getNearbyCustomers = async (req: Request, res: Response) => {
+    const { latitude, longitude } = requireLatLng(req.query.latitude, req.query.longitude);
+    const radius = req.query.radius_km === undefined ? 1 : requireNumber(req.query.radius_km, "radius_km", 0.01, 100);
 
-        if (
-            !Number.isFinite(latitude) ||
-            !Number.isFinite(longitude)
-        ) {
-            return res.status(400).json({
-                error: 'Please provide valid latitude and longitude'
-            });
-        }
-
-        // ดึงลูกค้าทั้งหมดจากฐานข้อมูล
-        const [rows] = await db.query('SELECT * FROM customers');
-
-        const customers = rows as CustomerModel[];
-
-        // เพิ่มระยะทางให้ลูกค้าแต่ละคน
-        const customersWithDistance = customers.map((customer) => {
-            const distance = calculateDistanceKm(
-                latitude,
-                longitude,
-                Number(customer.latitude),
-                Number(customer.longitude)
-            );
-
-            return {
-                ...customer,
-                distance_km: Number(distance.toFixed(3))
-            };
-        });
-
-        // เลือกเฉพาะคนที่อยู่ไม่เกิน 1 กิโลเมตร
-        const nearbyCustomers = customersWithDistance
-            .filter((customer) => customer.distance_km <= 1)
-            .sort((a, b) => a.distance_km - b.distance_km);
-
-        return res.status(200).json(nearbyCustomers);
-
-    } catch (err: any) {
-        console.error('Error in getNearbyCustomers:', err);
-
-        return res.status(500).json({
-            error: 'Database error',
-            details: err?.message || String(err)
-        });
-    }
+    const [rows] = await db.query("SELECT * FROM customers");
+    const nearby = (rows as CustomerModel[])
+        .map((c) => ({
+            ...c,
+            distance_km: round(haversineKm(latitude, longitude, Number(c.latitude), Number(c.longitude)), 3),
+        }))
+        .filter((c) => c.distance_km <= radius)
+        .sort((a, b) => a.distance_km - b.distance_km);
+    return res.json(nearby);
 };
 
-export const searchNameCustomer = async (req: Request, res: Response) => {
-    try {
-        const keyword = String(req.query.name ?? '').trim();
-
-        if (!keyword) {
-            return res.status(400).json({
-                error: 'Please provide search query, for example ?name=สมชาย'
-            });
-        }
-
-        const [rows] = await db.query(
-            'SELECT * FROM customers WHERE name LIKE ? ORDER BY name',
-            [`%${keyword}%`]
-        );
-        const cusotmers = rows as CustomerModel[];
-
-        return res.status(200).json(cusotmers);
-    } catch (err: any) {
-        console.error("Error in getCustomers:", err);
-        return res.status(500).json({
-            error: "Database error",
-            details: err?.message || String(err)
-        });
+// GET /api/customer/search/fields?name=สมชาย  หรือ ?phone=0812
+export const searchCustomers = async (req: Request, res: Response) => {
+    const name = String(req.query.name ?? "").trim();
+    const phone = String(req.query.phone ?? "").replace(/[^0-9]/g, "");
+    if (!name && !phone) {
+        throw new HttpError(400, "Please provide ?name= or ?phone=");
     }
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (name) { where.push("name LIKE ?"); params.push(`%${name}%`); }
+    if (phone) { where.push("phone LIKE ?"); params.push(`%${phone}%`); }
+    const [rows] = await db.query(
+        `SELECT * FROM customers WHERE ${where.join(" AND ")} ORDER BY name LIMIT 50`,
+        params
+    );
+    return res.json(rows as CustomerModel[]);
 };
 
+// GET /api/customer/phone/:phone  ลูกค้าเก่า ใส่เบอร์โทรก็เจอ (ตรงตัว)
+export const getCustomerByPhone = async (req: Request, res: Response) => {
+    const phone = normalizePhone(req.params.phone);
+    const [rows] = await db.query("SELECT * FROM customers WHERE phone = ?", [phone]);
+    const customers = rows as CustomerModel[];
+    if (customers.length === 0) throw new HttpError(404, "Customer not found");
+    return res.json(customers[0]);
+};
+
+// GET /api/customer/:id
 export const getCustomersByID = async (req: Request, res: Response) => {
-    try {
-        const id = req.params.id;
-        const [rows] = await db.query('SELECT * FROM customers WHERE id = ?', [id]);
-        const customers = rows as CustomerModel[];
-
-        if (customers.length === 0) {
-            return res.status(404).json({
-                error: "Customer not found"
-            });
-        }
-
-        return res.json(customers[0]);
-    } catch (err: any) {
-        console.error("Error in getCustomersByID:", err);
-        return res.status(500).json({
-            error: "Database error",
-            details: err?.message || String(err)
-        });
-    }
+    const id = requireId(req.params.id);
+    const [rows] = await db.query("SELECT * FROM customers WHERE id = ?", [id]);
+    const customers = rows as CustomerModel[];
+    if (customers.length === 0) throw new HttpError(404, "Customer not found");
+    return res.json(customers[0]);
 };
 
+// GET /api/customer/:id/orders  ประวัติการสั่งของลูกค้า
+export const getCustomerOrders = async (req: Request, res: Response) => {
+    const id = requireId(req.params.id);
+    const [rows] = await db.query(
+        "SELECT * FROM orders WHERE customer_id = ? ORDER BY order_date DESC, id DESC",
+        [id]
+    );
+    return res.json(rows);
+};
+
+// POST /api/customer
 export const createCustomer = async (req: Request, res: Response) => {
-    try {
-        const { name, phone, address, latitude, longitude } = req.body;
-
-        const sql = 'INSERT INTO customers (name, phone, address, latitude, longitude) VALUES (?, ?, ?, ?, ?)';
-        const [result] = await db.query<ResultSetHeader>(sql, [name, phone, address, latitude, longitude]);
-
-        return res.status(201).json({
-            affected_rows: result.affectedRows,
-            last_id: result.insertId
-        });
-    } catch (err: any) {
-        console.error("Error in createCustomer:", err);
-        return res.status(500).json({
-            error: "Database error",
-            details: err?.message || String(err)
-        });
+    const c = await parseCustomerBody(req.body);
+    const [dup] = await db.query<RowDataPacket[]>("SELECT id FROM customers WHERE phone = ?", [c.phone]);
+    if (dup.length > 0) {
+        throw new HttpError(409, "Phone number already exists", { customer_id: dup[0]!.id });
     }
+    const [result] = await db.query<ResultSetHeader>(
+        "INSERT INTO customers (name, phone, address, latitude, longitude) VALUES (?, ?, ?, ?, ?)",
+        [c.name, c.phone, c.address, c.latitude, c.longitude]
+    );
+    return res.status(201).json({
+        affected_rows: result.affectedRows,
+        last_id: result.insertId,
+        distance_from_shop_km: c.distance_from_shop_km,
+    });
 };
 
-export const deleteCustomerByID = async (req: Request, res: Response) => {
-    const connection = await db.getConnection();
-
-    try {
-        const id = req.params.id;
-        await connection.beginTransaction();
-
-        const [planRows] = await connection.query<any[]>(
-            `SELECT DISTINCT rr.plan_id
-             FROM route_stops rs
-             JOIN orders o ON o.id = rs.order_id
-             JOIN rider_routes rr ON rr.id = rs.route_id
-             WHERE o.customer_id = ?`,
-            [id]
-        );
-
-        const planIds = planRows.map((row) => Number(row.plan_id));
-        if (planIds.length > 0) {
-            const placeholders = planIds.map(() => '?').join(', ');
-            await connection.query(
-                `DELETE FROM delivery_plans WHERE id IN (${placeholders})`,
-                planIds
-            );
-        }
-
-        await connection.query('DELETE FROM orders WHERE customer_id = ?', [id]);
-
-        const [result] = await connection.query<ResultSetHeader>(
-            'DELETE FROM customers WHERE id = ?',
-            [id]
-        );
-
-        if (result.affectedRows === 0) {
-            await connection.rollback();
-            return res.status(404).json({
-                error: "Customer not found"
-            });
-        }
-
-        await connection.commit();
-
-        return res.status(200).json({
-            message: "Deleted customer and related orders successfully",
-            affected_row: result.affectedRows,
-            deleted_related_plans: planIds.length
-        });
-    } catch (err: any) {
-        await connection.rollback();
-        console.error("Error in deleteCustomerByID:", err);
-        return res.status(500).json({
-            error: 'Database error',
-            details: err?.message || String(err)
-        });
-    } finally {
-        connection.release();
-    }
-};
-
+// PUT /api/customer/:id
 export const updateCustomerByID = async (req: Request, res: Response) => {
+    const id = requireId(req.params.id);
+    const c = await parseCustomerBody(req.body);
+    const [dup] = await db.query<RowDataPacket[]>("SELECT id FROM customers WHERE phone = ? AND id <> ?", [c.phone, id]);
+    if (dup.length > 0) {
+        throw new HttpError(409, "Phone number already used by another customer", { customer_id: dup[0]!.id });
+    }
+    const [result] = await db.query<ResultSetHeader>(
+        "UPDATE customers SET name = ?, phone = ?, address = ?, latitude = ?, longitude = ? WHERE id = ?",
+        [c.name, c.phone, c.address, c.latitude, c.longitude, id]
+    );
+    if (result.affectedRows === 0) throw new HttpError(404, "Customer not found");
+    return res.json({ affected_rows: result.affectedRows });
+};
+
+// DELETE /api/customer/:id
+// ลบได้เมื่อลูกค้าไม่มีออเดอร์ที่อยู่ในแผนที่ยังใช้งาน/ส่งแล้ว (กันแผนของลูกค้าคนอื่นพัง)
+export const deleteCustomerByID = async (req: Request, res: Response) => {
+    const id = requireId(req.params.id);
+    const conn = await db.getConnection();
     try {
-        const id = req.params.id;
-        const { name, phone, address, latitude, longitude } = req.body;
-
-        const sql = `
-            UPDATE customers
-            SET name = ?,
-                phone = ?,
-                address = ?,
-                latitude = ?,
-                longitude = ?
-            WHERE id = ?
-        `;
-
-        const [result] = await db.query<ResultSetHeader>(sql, [
-            name,
-            phone,
-            address,
-            latitude,
-            longitude,
-            id
-        ]);
-
-        if (result.affectedRows === 0) {
-            return res.status(404).json({
-                error: "Customer not found"
-            });
+        await conn.beginTransaction();
+        const [used] = await conn.query<RowDataPacket[]>(
+            `SELECT COUNT(*) AS n
+             FROM orders o
+             JOIN route_stops rs ON rs.order_id = o.id
+             JOIN rider_routes rr ON rr.id = rs.route_id
+             JOIN delivery_plans p ON p.id = rr.plan_id
+             WHERE o.customer_id = ? AND p.status <> 'cancelled'`,
+            [id]
+        );
+        if (Number(used[0]?.n ?? 0) > 0) {
+            throw new HttpError(409, "Customer has orders in an active or completed delivery plan");
         }
-
-        return res.status(200).json({
-            affected_row: result.affectedRows
+        const [orders] = await conn.query<ResultSetHeader>("DELETE FROM orders WHERE customer_id = ?", [id]);
+        const [result] = await conn.query<ResultSetHeader>("DELETE FROM customers WHERE id = ?", [id]);
+        if (result.affectedRows === 0) throw new HttpError(404, "Customer not found");
+        await conn.commit();
+        return res.json({
+            message: "Deleted customer and related orders successfully",
+            affected_rows: result.affectedRows,
+            deleted_orders: orders.affectedRows,
         });
-    } catch (err: any) {
-        console.error("Error in updateCustomerByID:", err);
-        return res.status(500).json({
-            error: "Database error",
-            details: err?.message || String(err)
-        });
+    } catch (err) {
+        await conn.rollback();
+        throw err;
+    } finally {
+        conn.release();
     }
 };
