@@ -65,6 +65,8 @@ export const deliverMyStop = async (req: Request, res: Response) => {
         if (stop.rider_id !== riderId) throw new HttpError(403, "This job belongs to another rider");
         if (stop.route_status === "cancelled") throw new HttpError(409, "This job was cancelled");
         if (stop.status === "delivered") throw new HttpError(400, "This stop is already delivered");
+        // ร้านยกเลิกออเดอร์นี้แล้ว ห้ามเปลี่ยนกลับเป็น delivered
+        if (stop.status === "cancelled") throw new HttpError(409, "This stop was cancelled by the shop");
 
         await conn.query<ResultSetHeader>(
             "UPDATE route_stops SET status = 'delivered', delivered_at = NOW() WHERE id = ?",

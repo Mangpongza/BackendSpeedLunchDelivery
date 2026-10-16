@@ -28,7 +28,7 @@ CREATE TABLE settings (
     max_orders_per_rider TINYINT UNSIGNED NOT NULL DEFAULT 3,
     max_boxes_per_order TINYINT UNSIGNED NOT NULL DEFAULT 3,
     service_minutes_per_stop TINYINT UNSIGNED NOT NULL DEFAULT 2,
-    service_radius_km DECIMAL(6, 2) NOT NULL DEFAULT 10.00,
+    service_radius_km DECIMAL(6, 2) NOT NULL DEFAULT 3.00,
     PRIMARY KEY (id),
     CONSTRAINT chk_single_settings CHECK (id = 1),
     CONSTRAINT chk_settings_latitude CHECK (shop_latitude BETWEEN -90 AND 90),
@@ -202,7 +202,7 @@ INSERT INTO settings (
 VALUES (
     1, 'SpeedLunchDelivery', 'มหาวิทยาลัยมหาสารคาม', 16.2462000, 103.2501000,
     65.00, 40.00, 15.00, 2.00,
-    3, 3, 2, 10.00
+    3, 3, 2, 3.00
 )
 ON DUPLICATE KEY UPDATE id = id;
 
