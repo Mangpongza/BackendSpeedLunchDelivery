@@ -224,6 +224,11 @@ export const updateOrderByID = async (req: Request, res: Response) => {
         "UPDATE orders SET customer_id = ?, quantity = ?, order_date = ?, status = ? WHERE id = ?",
         [customerId, quantity, orderDate, status, id]
     );
+    // ยกเลิกผ่าน PUT ต้องยกเลิกจุดส่งในใบงานด้วย เหมือน DELETE /api/order/:id
+    if (stop && status === "cancelled" && original.status !== "cancelled") {
+        await db.query("UPDATE route_stops SET status = 'cancelled' WHERE id = ?", [stop.stop_id]);
+        await refreshRouteAndPlanStatus(Number(stop.route_id), db);
+    }
     const changed = customerId !== original.customer_id || quantity !== original.quantity ||
         orderDate !== original.order_date || status !== original.status;
     return res.json({
