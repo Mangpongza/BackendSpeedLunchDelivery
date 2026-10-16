@@ -2,10 +2,6 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { NextFunction, Request, Response } from "express";
 import { HttpError } from "./errorHandler";
 
-// token แบบง่าย (คล้าย JWT) ใช้ crypto ที่มากับ Node ไม่ต้องลงแพ็กเกจเพิ่ม
-// รูปแบบ: base64url(payload).base64url(hmac-sha256)
-
-// อ่านค่าตอนใช้งาน (หลัง dotenv.config() ทำงานแล้ว)
 let warned = false;
 function secret(): string {
     if (!process.env.AUTH_SECRET && !warned) {
@@ -18,7 +14,7 @@ function secret(): string {
 export interface RiderTokenPayload {
     rider_id: number;
     role: "rider";
-    exp: number; // unix seconds
+    exp: number;
 }
 
 function sign(data: string): string {
@@ -52,7 +48,6 @@ export function verifyRiderToken(token: string): RiderTokenPayload {
     return payload;
 }
 
-/** ใช้กับเส้น /api/me/* ต้องส่ง header Authorization: Bearer <token> */
 export const requireRider = (req: Request, res: Response, next: NextFunction) => {
     const header = String(req.headers.authorization ?? "");
     const match = /^Bearer\s+(.+)$/i.exec(header);

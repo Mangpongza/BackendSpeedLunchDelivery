@@ -11,7 +11,7 @@ export async function getSettings(conn: Queryable = db): Promise<SettingsModel> 
     const list = rows as SettingsModel[];
     if (list.length === 0) throw new HttpError(500, "Shop settings not configured (import sqlschema.sql)");
     const s = list[0]!;
-    // แปลงให้เป็น number เสมอ
+
     return {
         ...s,
         shop_latitude: Number(s.shop_latitude),
@@ -31,7 +31,6 @@ export function distanceFromShopKm(settings: SettingsModel, latitude: number, lo
     return round(haversineKm(settings.shop_latitude, settings.shop_longitude, latitude, longitude), 3);
 }
 
-/** ปฏิเสธพิกัดที่อยู่นอกพื้นที่ให้บริการ */
 export function assertInServiceArea(settings: SettingsModel, latitude: number, longitude: number): number {
     const d = distanceFromShopKm(settings, latitude, longitude);
     if (d > settings.service_radius_km) {

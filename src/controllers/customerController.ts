@@ -7,7 +7,6 @@ import { haversineKm, round } from "../distanceCalculator";
 import { HttpError } from "../errorHandler";
 import { normalizePhone, requireId, requireLatLng, requireNumber, requireText } from "../validation";
 
-/** ตรวจข้อมูลลูกค้าจาก body (ใช้ทั้งเพิ่มและแก้ไข) */
 export async function parseCustomerBody(body: any) {
     const name = requireText(body?.name, "name", 120);
     const phone = normalizePhone(body?.phone);
@@ -17,13 +16,11 @@ export async function parseCustomerBody(body: any) {
     return { name, phone, address, latitude, longitude, distance_from_shop_km: distance };
 }
 
-// GET /api/customer
 export const getCustomers = async (_req: Request, res: Response) => {
     const [rows] = await db.query("SELECT * FROM customers ORDER BY id");
     return res.json(rows as CustomerModel[]);
 };
 
-// GET /api/customer/nearby?latitude=&longitude=&radius_km=1
 export const getNearbyCustomers = async (req: Request, res: Response) => {
     const { latitude, longitude } = requireLatLng(req.query.latitude, req.query.longitude);
     const radius = req.query.radius_km === undefined ? 1 : requireNumber(req.query.radius_km, "radius_km", 0.01, 100);
@@ -39,7 +36,6 @@ export const getNearbyCustomers = async (req: Request, res: Response) => {
     return res.json(nearby);
 };
 
-// GET /api/customer/search/fields?name=สมชาย  หรือ ?phone=0812
 export const searchCustomers = async (req: Request, res: Response) => {
     const name = String(req.query.name ?? "").trim();
     const phone = String(req.query.phone ?? "").replace(/[^0-9]/g, "");
@@ -57,7 +53,6 @@ export const searchCustomers = async (req: Request, res: Response) => {
     return res.json(rows as CustomerModel[]);
 };
 
-// GET /api/customer/phone/:phone  ลูกค้าเก่า ใส่เบอร์โทรก็เจอ (ตรงตัว)
 export const getCustomerByPhone = async (req: Request, res: Response) => {
     const phone = normalizePhone(req.params.phone);
     const [rows] = await db.query("SELECT * FROM customers WHERE phone = ?", [phone]);
@@ -66,7 +61,6 @@ export const getCustomerByPhone = async (req: Request, res: Response) => {
     return res.json(customers[0]);
 };
 
-// GET /api/customer/:id
 export const getCustomersByID = async (req: Request, res: Response) => {
     const id = requireId(req.params.id);
     const [rows] = await db.query("SELECT * FROM customers WHERE id = ?", [id]);
@@ -75,7 +69,6 @@ export const getCustomersByID = async (req: Request, res: Response) => {
     return res.json(customers[0]);
 };
 
-// GET /api/customer/:id/orders  ประวัติการสั่งของลูกค้า
 export const getCustomerOrders = async (req: Request, res: Response) => {
     const id = requireId(req.params.id);
     const [rows] = await db.query(
@@ -85,7 +78,6 @@ export const getCustomerOrders = async (req: Request, res: Response) => {
     return res.json(rows);
 };
 
-// POST /api/customer
 export const createCustomer = async (req: Request, res: Response) => {
     const c = await parseCustomerBody(req.body);
     const [dup] = await db.query<RowDataPacket[]>("SELECT id FROM customers WHERE phone = ?", [c.phone]);
@@ -103,7 +95,6 @@ export const createCustomer = async (req: Request, res: Response) => {
     });
 };
 
-// PUT /api/customer/:id
 export const updateCustomerByID = async (req: Request, res: Response) => {
     const id = requireId(req.params.id);
     const c = await parseCustomerBody(req.body);
@@ -119,8 +110,6 @@ export const updateCustomerByID = async (req: Request, res: Response) => {
     return res.json({ affected_rows: result.affectedRows });
 };
 
-// DELETE /api/customer/:id
-// ลบได้เมื่อลูกค้าไม่มีออเดอร์ที่อยู่ในแผนที่ยังใช้งาน/ส่งแล้ว (กันแผนของลูกค้าคนอื่นพัง)
 export const deleteCustomerByID = async (req: Request, res: Response) => {
     const id = requireId(req.params.id);
     const conn = await db.getConnection();

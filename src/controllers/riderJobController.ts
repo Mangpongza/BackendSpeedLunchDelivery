@@ -6,9 +6,6 @@ import { getJobDetail, getRiderJobsOnDate, refreshRouteAndPlanStatus } from "../
 import { HttpError } from "../errorHandler";
 import { dateOrToday, requireId } from "../validation";
 
-// เส้นทั้งหมดในไฟล์นี้ต้องล็อกอิน (requireRider) -> res.locals.riderId
-
-// GET /api/me
 export const getMe = async (_req: Request, res: Response) => {
     const [rows] = await db.query("SELECT id, name, phone FROM riders WHERE id = ?", [res.locals.riderId]);
     const riders = rows as RiderModel[];
@@ -16,7 +13,6 @@ export const getMe = async (_req: Request, res: Response) => {
     return res.json(riders[0]);
 };
 
-// GET /api/me/jobs?date=YYYY-MM-DD  (ไม่ส่ง = วันนี้)  ใบงานของฉันในวันนั้น
 export const getMyJobs = async (req: Request, res: Response) => {
     const date = dateOrToday(req.query.date);
     const jobs = await getRiderJobsOnDate(res.locals.riderId, date);
@@ -28,12 +24,10 @@ export const getMyJobs = async (req: Request, res: Response) => {
     });
 };
 
-// GET /api/me/jobs/:code  ใบงาน + ข้อความสรุปจุดส่งทีละจุด + ลิงก์นำทาง
 export const getMyJobByCode = async (req: Request, res: Response) => {
     return res.json(await getJobDetail(String(req.params.code), res.locals.riderId));
 };
 
-// PATCH /api/me/jobs/:code/start  กดเริ่มออกส่ง
 export const startMyJob = async (req: Request, res: Response) => {
     const job = await getJobDetail(String(req.params.code), res.locals.riderId);
     if (job.status === "cancelled") throw new HttpError(409, "This job was cancelled, please refresh your jobs");
@@ -42,7 +36,6 @@ export const startMyJob = async (req: Request, res: Response) => {
     return res.json({ message: "Job started", job_code: job.job_code, status: "in_progress" });
 };
 
-// PATCH /api/me/jobs/:code/stops/:sequence/deliver  กดยืนยันส่งของจุดนี้แล้ว
 export const deliverMyStop = async (req: Request, res: Response) => {
     const code = String(req.params.code);
     const sequence = requireId(req.params.sequence, "stop sequence");
@@ -65,7 +58,7 @@ export const deliverMyStop = async (req: Request, res: Response) => {
         if (stop.rider_id !== riderId) throw new HttpError(403, "This job belongs to another rider");
         if (stop.route_status === "cancelled") throw new HttpError(409, "This job was cancelled");
         if (stop.status === "delivered") throw new HttpError(400, "This stop is already delivered");
-        // ร้านยกเลิกออเดอร์นี้แล้ว ห้ามเปลี่ยนกลับเป็น delivered
+
         if (stop.status === "cancelled") throw new HttpError(409, "This stop was cancelled by the shop");
 
         await conn.query<ResultSetHeader>(

@@ -26,7 +26,6 @@ const PENDING_ORDER_SQL = `
     WHERE o.status = 'pending' AND o.order_date = ?
     ORDER BY o.id`;
 
-// ---------- GET /api/route/pending?date=YYYY-MM-DD ----------
 export const getPendingOrders = async (req: Request, res: Response) => {
     const date = dateOrToday(req.query.date);
     const settings = await getSettings();
@@ -47,9 +46,6 @@ export const getPendingOrders = async (req: Request, res: Response) => {
     });
 };
 
-// ---------- POST /api/route/calculate ----------
-// ปุ่ม "จัดเส้นทาง": คำนวณ + บันทึกแผน + สร้างใบงานไรเดอร์
-// ถ้าวันนั้นมีแผนเดิมอยู่และยังไม่มีใครเริ่มส่ง แผนเดิมจะถูกยกเลิกแล้วสร้าง revision ใหม่
 export const calculatePlan = async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as CalculatePlanBody;
     const deliveryDate = dateOrToday(body.delivery_date, "delivery_date");
@@ -84,7 +80,6 @@ export const calculatePlan = async (req: Request, res: Response) => {
             throw new HttpError(400, "service_minutes must be between 0 and 30");
         }
 
-        // 1. แผนเดิมของวันนั้น
         const [oldRows] = await conn.query<RowDataPacket[]>(
             `SELECT p.id,
                     (SELECT COUNT(*) FROM rider_routes rr JOIN route_stops rs ON rs.route_id = rr.id
@@ -109,7 +104,6 @@ export const calculatePlan = async (req: Request, res: Response) => {
             );
         }
 
-        // 2. ออเดอร์รอส่ง
         const [orderRows] = await conn.query(`${PENDING_ORDER_SQL} FOR UPDATE`, [deliveryDate]);
         const orders = (orderRows as PendingOrderRow[]).map((o) => ({
             ...o,
@@ -120,7 +114,6 @@ export const calculatePlan = async (req: Request, res: Response) => {
         }));
         if (orders.length === 0) throw new HttpError(400, `No pending orders on ${deliveryDate}`);
 
-        // 3. ไรเดอร์ เรียงคนที่ได้งานน้อยใน 7 วันล่าสุดก่อน (กระจายงานให้ยุติธรรม)
         const [riderRows] = await conn.query<RowDataPacket[]>(
             `SELECT r.id, r.name, r.phone, COUNT(rr.id) AS recent_jobs
              FROM riders r
@@ -133,7 +126,6 @@ export const calculatePlan = async (req: Request, res: Response) => {
         );
         if (riderRows.length === 0) throw new HttpError(400, "No riders in the system, add riders first (POST /api/riders)");
 
-        // 4. คำนวณ
         const departureMin = timeToMinutes(departureTime);
         let plan;
         try {
@@ -161,7 +153,6 @@ export const calculatePlan = async (req: Request, res: Response) => {
         const foodCost = plan.totalBoxes * settings.box_cost;
         const profit = revenue - foodCost - plan.deliveryCost - plan.latePenalty;
 
-        // 5. บันทึก
         const [revRows] = await conn.query<RowDataPacket[]>(
             "SELECT COALESCE(MAX(revision), 0) + 1 AS next_revision FROM delivery_plans WHERE delivery_date = ?",
             [deliveryDate]
@@ -191,7 +182,7 @@ export const calculatePlan = async (req: Request, res: Response) => {
             const points = [
                 [settings.shop_latitude, settings.shop_longitude],
                 ...route.stops.map((s) => [s.order.latitude, s.order.longitude]),
-                [settings.shop_latitude, settings.shop_longitude], // ส่งเสร็จกลับร้าน
+                [settings.shop_latitude, settings.shop_longitude],
             ];
             const navigationUrl = "https://www.google.com/maps/dir/" + points.map((p) => `${p[0]},${p[1]}`).join("/");
 
@@ -232,7 +223,6 @@ export const calculatePlan = async (req: Request, res: Response) => {
     return res.status(201).json({ ...detail, replaced_plan_ids: replacedPlans });
 };
 
-// ---------- GET /api/route/plans?date=&status= ----------
 export const getPlans = async (req: Request, res: Response) => {
     const date = String(req.query.date ?? "").trim();
     const status = String(req.query.status ?? "").trim();
@@ -255,8 +245,6 @@ export const getPlans = async (req: Request, res: Response) => {
     return res.json(rows);
 };
 
-// ---------- GET /api/route/plans/latest?date= ----------
-// แผนที่ใช้งานล่าสุดของวัน (หน้าแดชบอร์ดแผนที่)
 export const getLatestPlan = async (req: Request, res: Response) => {
     const date = dateOrToday(req.query.date);
     const [rows] = await db.query<RowDataPacket[]>(
@@ -269,13 +257,10 @@ export const getLatestPlan = async (req: Request, res: Response) => {
     return res.json(await getPlanDetail(Number(rows[0]!.id)));
 };
 
-// ---------- GET /api/route/plans/:id ----------
 export const getPlanById = async (req: Request, res: Response) => {
     return res.json(await getPlanDetail(requireId(req.params.id)));
 };
 
-// ---------- DELETE /api/route/plans/:id ----------
-// ยกเลิกแผน (ไม่ลบจริง เก็บเป็นประวัติ) ทำได้เมื่อยังไม่มีใครส่งของ
 export const cancelPlan = async (req: Request, res: Response) => {
     const id = requireId(req.params.id);
     const conn = await db.getConnection();
@@ -310,7 +295,6 @@ export const cancelPlan = async (req: Request, res: Response) => {
     return res.json({ message: "Plan cancelled", plan_id: id });
 };
 
-// ---------- GET /api/route/shop (เส้นเดิม คงไว้ให้หน้าบ้านเก่าใช้ได้) ----------
 export const getShop = async (_req: Request, res: Response) => {
     return res.json(await getSettings());
 };

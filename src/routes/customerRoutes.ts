@@ -13,7 +13,6 @@ import {
 
 export const router = express.Router();
 
-// path คงที่ต้องมาก่อน /:id
 router.get("/", getCustomers);
 router.get("/nearby", getNearbyCustomers);
 router.get("/search/fields", searchCustomers);

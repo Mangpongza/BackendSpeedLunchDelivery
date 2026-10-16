@@ -5,8 +5,6 @@ import { RiderModel } from "../models/riderModel";
 import { HttpError } from "../errorHandler";
 import { normalizePhone } from "../validation";
 
-// POST /api/auth/rider-login  { "phone": "0810000001" }
-// ไรเดอร์ล็อกอินด้วยเบอร์โทรที่ร้านลงทะเบียนไว้ ได้ token ไปใช้กับเส้น /api/me/*
 export const riderLogin = async (req: Request, res: Response) => {
     const phone = normalizePhone(req.body?.phone);
     const [rows] = await db.query("SELECT id, name, phone FROM riders WHERE phone = ?", [phone]);

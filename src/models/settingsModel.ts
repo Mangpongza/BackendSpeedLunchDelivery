@@ -16,8 +16,6 @@ export interface SettingsModel {
 
 export type UpdateSettingsModel = Partial<Omit<SettingsModel, "id">>;
 
-/** มอเตอร์ไซค์ 1 คันขนได้สูงสุด 10 กล่อง (โจทย์) */
 export const BOX_CAPACITY_PER_RIDER = 10;
 
-/** ส่งเลยเวลา ร้านต้องจ่ายค่าชดเชยออเดอร์ละ 20 บาท (โจทย์) */
 export const LATE_PENALTY_PER_ORDER = 20;

@@ -2,7 +2,6 @@ import { HttpError } from "./errorHandler";
 
 export const TIMEZONE = process.env.TZ_NAME ?? "Asia/Bangkok";
 
-/** วันที่วันนี้ตามเวลาไทย รูปแบบ YYYY-MM-DD */
 export function todayStr(): string {
     return new Intl.DateTimeFormat("en-CA", { timeZone: TIMEZONE }).format(new Date());
 }
@@ -30,7 +29,6 @@ export function minutesToTimeString(totalMinutes: number): string {
     return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}:00`;
 }
 
-/** อ่าน query/body date ถ้าไม่ส่งมาใช้วันนี้ */
 export function dateOrToday(value: unknown, field = "date"): string {
     const s = String(value ?? "").trim();
     if (!s) return todayStr();
@@ -51,7 +49,6 @@ export function requireText(value: unknown, field: string, max: number): string 
     return s;
 }
 
-/** เบอร์โทรไทย: เก็บเฉพาะตัวเลข 9–10 หลัก */
 export function normalizePhone(value: unknown): string {
     const digits = String(value ?? "").replace(/[^0-9]/g, "");
     if (!/^0\d{8,9}$/.test(digits)) {

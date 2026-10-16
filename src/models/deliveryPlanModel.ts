@@ -15,12 +15,12 @@ export interface PendingOrderRow {
 }
 
 export interface CalculatePlanBody {
-  delivery_date?: string;   // ไม่ส่ง = วันนี้
-  rider_count?: number;     // จำนวนไรเดอร์ขั้นต่ำ ระบบจะเพิ่มให้เองถ้าไม่พอ/ส่งไม่ทัน
-  departure_time?: string;  // ค่าเริ่มต้น 11:30:00
-  deadline_time?: string;   // ค่าเริ่มต้น 12:30:00
-  speed_kmh?: number;       // ค่าเริ่มต้น 30
-  service_minutes?: number; // ค่าเริ่มต้นจาก settings.service_minutes_per_stop
+  delivery_date?: string;
+  rider_count?: number;
+  departure_time?: string;
+  deadline_time?: string;
+  speed_kmh?: number;
+  service_minutes?: number;
 }
 
 export interface DeliveryPlanModel {

@@ -24,7 +24,6 @@ app.get("/api/health", (_req, res) => {
     res.json({ status: "ok" });
 });
 
-// ---- หน้าจอเจ้าของร้าน ----
 app.use("/api/settings", settingsRoutes);
 app.use("/api/customer", customerRoutes);
 app.use("/api/order", orderRoutes);
@@ -32,7 +31,6 @@ app.use("/api/riders", riderRoutes);
 app.use("/api/route", planningRoutes);
 app.use("/api/jobs", jobRoutes);
 
-// ---- หน้าจอไรเดอร์ ----
 app.use("/api/auth", authRouter);
 app.use("/api/me", meRouter);
 

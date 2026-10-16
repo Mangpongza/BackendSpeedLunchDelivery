@@ -5,7 +5,6 @@ import { BOX_CAPACITY_PER_RIDER, LATE_PENALTY_PER_ORDER } from "../models/settin
 import { HttpError } from "../errorHandler";
 import { requireLatLng, requireNumber, requireText } from "../validation";
 
-// GET /api/settings
 export const getShopSettings = async (_req: Request, res: Response) => {
     const settings = await getSettings();
     return res.json({
@@ -15,7 +14,6 @@ export const getShopSettings = async (_req: Request, res: Response) => {
     });
 };
 
-// PUT /api/settings  (ส่งมาเฉพาะ field ที่ต้องการแก้)
 export const updateShopSettings = async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const current = await getSettings();

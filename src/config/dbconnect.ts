@@ -12,9 +12,9 @@ export const db = createPool({
     user: process.env.DB_USER ?? 'root',
     password: process.env.DB_PASSWORD ?? '',
     database: process.env.DB_NAME ?? 'speed_lunch_delivery',
-    // คืนค่า DATE/DATETIME เป็น string ตรงๆ ป้องกันวันที่เลื่อนเพราะ timezone (เช่น 2026-10-08 กลายเป็น 2026-10-07T17:00Z)
+
     dateStrings: true,
-    // DECIMAL คืนเป็น number แทน string
+
     decimalNumbers: true,
     ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
 });

@@ -1,16 +1,5 @@
 import { haversineKm } from "./distanceCalculator";
 
-/**
- * อัลกอริทึมจัดเส้นทาง (ไม่ยุ่งกับฐานข้อมูล ทดสอบแยกได้)
- *
- * 1. เรียงออเดอร์ตาม "มุม" รอบร้าน (sweep) ทำให้ออเดอร์ที่อยู่ทิศเดียวกันติดกัน
- * 2. ลองทุกจุดเริ่มต้นของวงกลม แล้วใช้ Dynamic Programming แบ่งเป็น k ช่วงต่อเนื่อง
- *    (ช่วงละไม่เกิน max_orders_per_rider จุด และไม่เกิน 10 กล่อง)
- * 3. ในแต่ละช่วงลองทุกลำดับการส่ง (≤3 จุด = ไม่เกิน 6 แบบ) เลือกแบบที่สั้นที่สุด
- * 4. เริ่มจากจำนวนไรเดอร์ขั้นต่ำ ถ้ายังมีจุดที่ส่งไม่ทัน 12:30 ค่อยเพิ่มไรเดอร์ทีละคน
- *    ในแต่ละจำนวนไรเดอร์ เลือกแบบที่ (ก) เลทน้อยที่สุด แล้ว (ข) ค่าส่งรวมถูกที่สุด
- */
-
 export interface PlannerOrder {
     id: number;
     quantity: number;
@@ -21,17 +10,17 @@ export interface PlannerOrder {
 export interface PlannerOptions {
     shopLat: number;
     shopLng: number;
-    minRiders: number;          // จำนวนไรเดอร์ขั้นต่ำที่เจ้าของร้านเลือก
-    maxRiders: number;          // จำนวนไรเดอร์ที่มีในระบบ
-    maxStopsPerRoute: number;   // settings.max_orders_per_rider
-    boxCapacity: number;        // 10 กล่อง/คัน
+    minRiders: number;
+    maxRiders: number;
+    maxStopsPerRoute: number;
+    boxCapacity: number;
     speedKmh: number;
-    serviceMinutes: number;     // settings.service_minutes_per_stop
-    departureMin: number;       // นาทีนับจากเที่ยงคืน เช่น 11:30 = 690
+    serviceMinutes: number;
+    departureMin: number;
     deadlineMin: number;
-    baseFee: number;            // settings.rider_base_fee
-    feePerKmPerBox: number;     // settings.rider_fee_per_km_per_box
-    latePenalty: number;        // ค่าชดเชยต่อออเดอร์ที่เลท
+    baseFee: number;
+    feePerKmPerBox: number;
+    latePenalty: number;
 }
 
 export interface PlannedStop<T extends PlannerOrder> {
@@ -45,9 +34,9 @@ export interface PlannedStop<T extends PlannerOrder> {
 export interface PlannedRoute<T extends PlannerOrder> {
     stops: PlannedStop<T>[];
     totalBoxes: number;
-    distanceKm: number;       // ร้าน -> จุดสุดท้าย
-    returnDistanceKm: number; // จุดสุดท้าย -> กลับร้าน
-    durationMinutes: number;  // ออกจากร้านจนส่งจุดสุดท้ายเสร็จ
+    distanceKm: number;
+    returnDistanceKm: number;
+    durationMinutes: number;
     deliveryCost: number;
     lateOrders: number;
 }
@@ -86,7 +75,6 @@ function permutations<X>(items: X[]): X[][] {
     return out;
 }
 
-/** หาลำดับการส่งที่ดีที่สุดของกลุ่มออเดอร์ 1 กลุ่ม (1 ไรเดอร์) */
 export function bestRoute<T extends PlannerOrder>(group: T[], opt: PlannerOptions): PlannedRoute<T> | null {
     const totalBoxes = group.reduce((s, o) => s + Number(o.quantity), 0);
     if (group.length === 0 || group.length > opt.maxStopsPerRoute || totalBoxes > opt.boxCapacity) return null;
@@ -94,7 +82,6 @@ export function bestRoute<T extends PlannerOrder>(group: T[], opt: PlannerOption
     let best: PlannedRoute<T> | null = null;
     let bestScore = INFEASIBLE;
 
-    // ≤3 จุด ลองครบทุกลำดับได้ (มากกว่านั้นใช้ nearest-neighbor)
     const orders = group.length <= 6 ? permutations(group) : [nearestNeighbor(group, opt)];
     for (const seq of orders) {
         let lat = opt.shopLat, lng = opt.shopLng, dist = 0, late = 0;
@@ -103,7 +90,7 @@ export function bestRoute<T extends PlannerOrder>(group: T[], opt: PlannerOption
             dist += d;
             lat = o.latitude;
             lng = o.longitude;
-            // เวลาถึง = เวลาเดินทางสะสม + เวลาส่งของจุดก่อนหน้า
+
             const arrivalMin = opt.departureMin + (dist / opt.speedKmh) * 60 + opt.serviceMinutes * i;
             const isLate = arrivalMin > opt.deadlineMin;
             if (isLate) late++;
@@ -150,11 +137,10 @@ function routeScore<T extends PlannerOrder>(r: PlannedRoute<T> | null, opt: Plan
     return { late: r.lateOrders, cost: r.deliveryCost + r.lateOrders * opt.latePenalty };
 }
 
-/** แบ่งลำดับ seq เป็น k ช่วงต่อเนื่องที่ดีที่สุดด้วย DP */
 function splitIntoRoutes<T extends PlannerOrder>(seq: T[], k: number, opt: PlannerOptions, cache: Map<string, PlannedRoute<T> | null>) {
     const n = seq.length;
     const L = opt.maxStopsPerRoute;
-    // dp[j][i] = คะแนนดีที่สุดของการใช้ j ไรเดอร์ส่ง i ออเดอร์แรก
+
     const dp: Score[][] = Array.from({ length: k + 1 }, () => Array<Score>(n + 1).fill(INFEASIBLE));
     const prev: number[][] = Array.from({ length: k + 1 }, () => Array<number>(n + 1).fill(-1));
     dp[0]![0] = { late: 0, cost: 0 };
@@ -198,7 +184,6 @@ export function planRoutes<T extends PlannerOrder>(orders: T[], opt: PlannerOpti
     const tooBig = orders.find((o) => o.quantity > opt.boxCapacity);
     if (tooBig) throw new PlannerError(`Order ${tooBig.id} has more boxes than one rider can carry`);
 
-    // ขอไรเดอร์มากกว่าจำนวนออเดอร์ไม่ได้ (1 คนต้องมีอย่างน้อย 1 จุด)
     const kMin = Math.max(
         Math.min(opt.minRiders, orders.length),
         Math.ceil(orders.length / opt.maxStopsPerRoute),
@@ -209,7 +194,6 @@ export function planRoutes<T extends PlannerOrder>(orders: T[], opt: PlannerOpti
     }
     const kMax = Math.min(opt.maxRiders, orders.length);
 
-    // เรียงตามมุมรอบร้าน
     const sorted = [...orders].sort((a, b) =>
         Math.atan2(a.latitude - opt.shopLat, a.longitude - opt.shopLng) -
         Math.atan2(b.latitude - opt.shopLat, b.longitude - opt.shopLng)
@@ -225,7 +209,7 @@ export function planRoutes<T extends PlannerOrder>(orders: T[], opt: PlannerOpti
             const r = splitIntoRoutes(seq, k, opt, cache);
             if (r && (bestAtK === null || better(r.score, bestAtK.score))) bestAtK = r;
         }
-        // เทียบข้ามจำนวนไรเดอร์: เลทน้อยกว่าก่อน แล้วค่าส่งถูกกว่า
+
         if (bestAtK && (best === null || better(bestAtK.score, best.score))) best = bestAtK;
     }
     if (!best) throw new PlannerError("Cannot build a plan with the current settings");

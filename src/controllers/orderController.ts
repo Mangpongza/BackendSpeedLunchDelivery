@@ -32,7 +32,6 @@ function requireQuantity(value: unknown, settings: SettingsModel): number {
     return requireNumber(value, "quantity", 1, settings.max_boxes_per_order, true);
 }
 
-/** ออเดอร์อยู่ในแผนที่ยังใช้งานไหม (ถ้าแก้/ยกเลิกต้องกดจัดเส้นทางใหม่) */
 async function activeStopOf(orderId: number) {
     const [rows] = await db.query<RowDataPacket[]>(
         `SELECT rs.id AS stop_id, rs.status, rs.route_id
@@ -46,7 +45,6 @@ async function activeStopOf(orderId: number) {
     return rows[0];
 }
 
-// GET /api/order?date=YYYY-MM-DD&status=pending&customer_id=1
 export const getOrder = async (req: Request, res: Response) => {
     const date = String(req.query.date ?? "").trim();
     const status = String(req.query.status ?? "").trim();
@@ -72,7 +70,6 @@ export const getOrder = async (req: Request, res: Response) => {
     return res.json(rows);
 };
 
-// GET /api/order/nearby?latitude=&longitude=&radius_km=2&date=
 export const getNearbyOrders = async (req: Request, res: Response) => {
     const { latitude, longitude } = requireLatLng(req.query.latitude, req.query.longitude);
     const radius = req.query.radius_km === undefined ? 2 : requireNumber(req.query.radius_km, "radius_km", 0.01, 100);
@@ -107,15 +104,13 @@ export const getNearbyOrders = async (req: Request, res: Response) => {
     return res.json(nearby);
 };
 
-// GET /api/order/:id
 export const getOrderByID = async (req: Request, res: Response) => {
     const id = requireId(req.params.id);
     const [rows] = await db.query<RowDataPacket[]>(`${ORDER_WITH_CUSTOMER} WHERE o.id = ?`, [id]);
-    if (rows.length === 0) throw new HttpError(404, "Order not found"); // เดิมไม่มี return ทำให้ server error
+    if (rows.length === 0) throw new HttpError(404, "Order not found");
     return res.json(rows[0]);
 };
 
-// POST /api/order  { customer_id, quantity, order_date? }
 export const createOrder = async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as CreateOrderModel;
     const settings = await getSettings();
@@ -133,8 +128,6 @@ export const createOrder = async (req: Request, res: Response) => {
     return res.status(201).json({ affected_rows: result.affectedRows, last_id: result.insertId });
 };
 
-// POST /api/order/quick  { name, phone, address?, latitude?, longitude?, quantity, order_date? }
-// หน้ากรอกออเดอร์ของเจ้าของร้าน: ค้นลูกค้าจากเบอร์โทร ถ้ายังไม่มีจะสร้างให้ แล้วสร้างออเดอร์ทันที
 export const quickOrder = async (req: Request, res: Response) => {
     const body = req.body ?? {};
     const settings = await getSettings();
@@ -150,7 +143,7 @@ export const quickOrder = async (req: Request, res: Response) => {
         let isNewCustomer = false;
 
         if (found.length > 0) {
-            // ลูกค้าเก่า: อัปเดตเฉพาะข้อมูลที่ส่งมา
+
             const old = found[0]!;
             customerId = Number(old.id);
             const name = body.name !== undefined && String(body.name).trim() ? requireText(body.name, "name", 120) : old.name;
@@ -196,7 +189,6 @@ export const quickOrder = async (req: Request, res: Response) => {
     }
 };
 
-// PUT /api/order/:id  (ส่งเฉพาะ field ที่ต้องการแก้)
 export const updateOrderByID = async (req: Request, res: Response) => {
     const id = requireId(req.params.id);
     const body = (req.body ?? {}) as UpdateOrderModel;
@@ -224,7 +216,7 @@ export const updateOrderByID = async (req: Request, res: Response) => {
         "UPDATE orders SET customer_id = ?, quantity = ?, order_date = ?, status = ? WHERE id = ?",
         [customerId, quantity, orderDate, status, id]
     );
-    // ยกเลิกผ่าน PUT ต้องยกเลิกจุดส่งในใบงานด้วย เหมือน DELETE /api/order/:id
+
     if (stop && status === "cancelled" && original.status !== "cancelled") {
         await db.query("UPDATE route_stops SET status = 'cancelled' WHERE id = ?", [stop.stop_id]);
         await refreshRouteAndPlanStatus(Number(stop.route_id), db);
@@ -234,12 +226,11 @@ export const updateOrderByID = async (req: Request, res: Response) => {
     return res.json({
         message: "Order updated successfully",
         affected_rows: result.affectedRows,
-        // อยู่ในแผนที่จัดไปแล้ว -> ควรกด /api/route/calculate ใหม่
+
         needs_replan: Boolean(stop) && changed,
     });
 };
 
-// DELETE /api/order/:id  = ยกเลิกออเดอร์ (ไม่ลบจริง)
 export const deleteOrderByID = async (req: Request, res: Response) => {
     const id = requireId(req.params.id);
     const [rows] = await db.query("SELECT id, status FROM orders WHERE id = ?", [id]);
@@ -257,7 +248,6 @@ export const deleteOrderByID = async (req: Request, res: Response) => {
     return res.json({ message: "Order cancelled successfully", needs_replan: Boolean(stop) });
 };
 
-// DELETE /api/order/demo  ล้างออเดอร์ทดสอบ + แผนที่มีออเดอร์ทดสอบ
 export const clearDemoOrders = async (_req: Request, res: Response) => {
     const conn = await db.getConnection();
     try {
@@ -293,7 +283,6 @@ export const clearDemoOrders = async (_req: Request, res: Response) => {
     }
 };
 
-/** สุ่มพิกัดในรัศมีให้บริการรอบร้าน (เผื่อขอบ 5% กันหลุดรัศมี) */
 function randomPointInArea(settings: SettingsModel) {
     const r = settings.service_radius_km * 0.95 * Math.sqrt(Math.random());
     const angle = Math.random() * 2 * Math.PI;
@@ -304,8 +293,6 @@ function randomPointInArea(settings: SettingsModel) {
     };
 }
 
-// POST /api/order/random  { amount?: 20, order_date?: "YYYY-MM-DD" }  สร้างออเดอร์ทดสอบ
-// ใช้ลูกค้าในพื้นที่คนละ 1 ออเดอร์ ถ้าลูกค้าไม่พอจะสร้างลูกค้าทดสอบในรัศมีให้บริการเพิ่ม
 export const randomOrder = async (req: Request, res: Response) => {
     const amount = Number(req.body?.amount ?? 20);
     if (!Number.isInteger(amount) || amount < 1 || amount > 30) {
@@ -324,7 +311,7 @@ export const randomOrder = async (req: Request, res: Response) => {
                 settings.service_radius_km
             )
             .map((c) => Number(c.id))
-            .sort(() => Math.random() - 0.5) // shortcut: สลับแบบง่าย ไม่สุ่มเท่ากันเป๊ะ พอสำหรับข้อมูลทดสอบ
+            .sort(() => Math.random() - 0.5)
             .slice(0, amount);
 
         let createdCustomers = 0;
@@ -332,7 +319,7 @@ export const randomOrder = async (req: Request, res: Response) => {
             const point = randomPointInArea(settings);
             const phone = "099" + String(Math.floor(Math.random() * 1e7)).padStart(7, "0");
             const [dup] = await conn.query<RowDataPacket[]>("SELECT id FROM customers WHERE phone = ?", [phone]);
-            if (dup.length > 0) continue; // เบอร์ซ้ำ สุ่มใหม่
+            if (dup.length > 0) continue;
             const [r] = await conn.query<ResultSetHeader>(
                 "INSERT INTO customers (name, phone, address, latitude, longitude) VALUES (?, ?, ?, ?, ?)",
                 [`ลูกค้าทดสอบ ${phone.slice(-4)}`, phone, "ข้อมูลทดสอบ", point.latitude, point.longitude]

@@ -31,7 +31,6 @@ function parseGeometry(g: unknown): unknown {
     try { return JSON.parse(g); } catch { return g; }
 }
 
-/** แนบจุดส่งเข้าไปในใบงาน */
 async function attachStops(routes: RowDataPacket[], conn: Queryable) {
     if (routes.length === 0) return routes;
     const ids = routes.map((r) => r.route_id);
@@ -49,7 +48,6 @@ async function attachStops(routes: RowDataPacket[], conn: Queryable) {
     return routes;
 }
 
-/** รายละเอียดแผน + ใบงานทุกคน + จุดส่ง (ใช้วาดแผนที่หน้าแดชบอร์ด) */
 export async function getPlanDetail(planId: number, conn: Queryable = db) {
     const [planRows] = await conn.query("SELECT * FROM delivery_plans WHERE id = ?", [planId]);
     const plans = planRows as RowDataPacket[];
@@ -70,7 +68,6 @@ export async function getPlanDetail(planId: number, conn: Queryable = db) {
     };
 }
 
-/** ใบงาน 1 ใบ (ระบุด้วย job_code) ถ้าส่ง riderId มาจะเช็กว่าเป็นของไรเดอร์คนนั้นจริง */
 export async function getJobDetail(jobCode: string, riderId?: number, conn: Queryable = db) {
     const [rows] = await conn.query(`${ROUTE_SELECT} WHERE rr.job_code = ?`, [jobCode]);
     const routes = rows as RowDataPacket[];
@@ -88,7 +85,6 @@ export async function getJobDetail(jobCode: string, riderId?: number, conn: Quer
     return job;
 }
 
-/** ข้อความสรุปสำหรับไรเดอร์ เช่น "จุดที่ 1 ไปส่งคุณ A -> ... -> กลับร้าน" */
 function buildInstructions(job: RowDataPacket): string[] {
     const lines = [`หยิบข้าวกล่องทั้งหมด ${job.total_boxes} กล่อง ออกจากร้านเวลา ${String(job.departure_time).slice(0, 5)} น.`];
     for (const s of job.stops as RowDataPacket[]) {
@@ -101,7 +97,6 @@ function buildInstructions(job: RowDataPacket): string[] {
     return lines;
 }
 
-/** ใบงานของไรเดอร์ในวันที่กำหนด (เฉพาะแผนที่ยังใช้งาน) */
 export async function getRiderJobsOnDate(riderId: number, date: string, conn: Queryable = db) {
     const [rows] = await conn.query(
         `${ROUTE_SELECT}
@@ -112,11 +107,6 @@ export async function getRiderJobsOnDate(riderId: number, date: string, conn: Qu
     return attachStops(rows as RowDataPacket[], conn);
 }
 
-/**
- * หลังส่งของ 1 จุด: อัปเดตสถานะใบงาน และแผน
- *  - ใบงาน: ส่งครบทุกจุด = completed, ส่งไปบางจุด = in_progress
- *  - แผน: ทุกใบงาน completed = completed
- */
 export async function refreshRouteAndPlanStatus(routeId: number, conn: Queryable) {
     await conn.query(
         `UPDATE rider_routes rr

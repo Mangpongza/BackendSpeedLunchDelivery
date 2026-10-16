@@ -13,7 +13,7 @@ export interface OrderModel {
 export interface CreateOrderModel {
     customer_id: number;
     quantity: number;
-    order_date?: string; // ไม่ส่ง = วันนี้
+    order_date?: string;
 }
 
 export interface UpdateOrderModel {
@@ -23,7 +23,6 @@ export interface UpdateOrderModel {
     status?: OrderStatus;
 }
 
-/** ฟอร์มเจ้าของร้าน: กรอกข้อมูลลูกค้า + จำนวนกล่อง ในครั้งเดียว */
 export interface QuickOrderModel {
     name: string;
     phone: string;

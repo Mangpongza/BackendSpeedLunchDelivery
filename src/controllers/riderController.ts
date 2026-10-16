@@ -5,8 +5,6 @@ import { RiderModel } from "../models/riderModel";
 import { HttpError } from "../errorHandler";
 import { dateOrToday, normalizePhone, requireId, requireText } from "../validation";
 
-// GET /api/riders?search=คำค้น&date=YYYY-MM-DD
-// ส่งจำนวนงานในวันนั้นกลับไปด้วย เพื่อให้หน้าเจ้าของร้านเห็นว่าใครว่าง
 export const getRiders = async (req: Request, res: Response) => {
     const search = String(req.query.search ?? "").trim();
     const date = dateOrToday(req.query.date);
@@ -27,7 +25,6 @@ export const getRiders = async (req: Request, res: Response) => {
     return res.json(rows);
 };
 
-// GET /api/riders/:id
 export const getRiderByID = async (req: Request, res: Response) => {
     const id = requireId(req.params.id);
     const [rows] = await db.query("SELECT id, name, phone FROM riders WHERE id = ?", [id]);
@@ -36,7 +33,6 @@ export const getRiderByID = async (req: Request, res: Response) => {
     return res.json(riders[0]);
 };
 
-// POST /api/riders
 export const createRider = async (req: Request, res: Response) => {
     const name = requireText(req.body?.name, "name", 120);
     const phone = normalizePhone(req.body?.phone);
@@ -47,7 +43,6 @@ export const createRider = async (req: Request, res: Response) => {
     return res.status(201).json({ affected_rows: result.affectedRows, last_id: result.insertId });
 };
 
-// PUT /api/riders/:id
 export const updateRiderByID = async (req: Request, res: Response) => {
     const id = requireId(req.params.id);
     const name = requireText(req.body?.name, "name", 120);
@@ -60,7 +55,6 @@ export const updateRiderByID = async (req: Request, res: Response) => {
     return res.json({ affected_rows: result.affectedRows });
 };
 
-// DELETE /api/riders/:id  (ลบไม่ได้ถ้ามีใบงานอยู่แล้ว เพื่อเก็บประวัติ)
 export const deleteRiderByID = async (req: Request, res: Response) => {
     const id = requireId(req.params.id);
     const [used] = await db.query("SELECT COUNT(*) AS n FROM rider_routes WHERE rider_id = ?", [id]);

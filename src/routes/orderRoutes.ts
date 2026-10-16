@@ -13,7 +13,6 @@ import {
 
 export const router = express.Router();
 
-// path คงที่ต้องมาก่อน /:id
 router.get('/', getOrder);
 router.get('/nearby', getNearbyOrders);
 router.post('/', createOrder);

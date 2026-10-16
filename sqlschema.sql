@@ -1,20 +1,9 @@
--- SpeedLunchDelivery schema (ตรงกับ ER Diagram "SpeedLunchDelivery-Final")
--- ตาราง: settings, customers, orders, riders, delivery_plans, rider_routes, route_stops
---
--- คอลัมน์ที่ "เพิ่มจาก ER" (จำเป็นต่อการทำงาน ควรเติมใน ER ด้วย):
---   orders.customer_id (FK จากความสัมพันธ์ places), orders.status
---   delivery_plans.settings_id (FK จาก uses), delivery_date, departure_time, deadline_time,
---                 rider_count, all_on_time, late_orders, late_penalty, created_at
---   rider_routes.plan_id / rider_id (FK จาก contains / assigned to), duration_minutes
---   route_stops.route_id / order_id (FK จาก has stops / scheduled as), arrival_time
-
 CREATE DATABASE IF NOT EXISTS speed_lunch_delivery
 CHARACTER SET utf8mb4
 COLLATE utf8mb4_unicode_ci;
 
 USE speed_lunch_delivery;
 
--- ร้านมีร้านเดียว (id = 1) เก็บพิกัดร้าน ราคา ต้นทุน และกติกาการจัดส่ง
 CREATE TABLE settings (
     id TINYINT UNSIGNED NOT NULL DEFAULT 1,
     shop_name VARCHAR(120) NOT NULL,
@@ -86,7 +75,6 @@ CREATE TABLE orders (
     CONSTRAINT chk_order_quantity CHECK (quantity BETWEEN 1 AND 3)
 ) ENGINE = InnoDB;
 
--- revision = ครั้งที่กด "จัดเส้นทาง" ของวันนั้น (แผนเก่าจะถูกเปลี่ยนเป็น cancelled)
 CREATE TABLE delivery_plans (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     settings_id TINYINT UNSIGNED NOT NULL DEFAULT 1,
@@ -129,7 +117,6 @@ CREATE TABLE delivery_plans (
     )
 ) ENGINE = InnoDB;
 
--- ใบงานของไรเดอร์ 1 คนในแผน 1 แผน
 CREATE TABLE rider_routes (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     plan_id BIGINT UNSIGNED NOT NULL,
@@ -167,7 +154,6 @@ CREATE TABLE rider_routes (
     CONSTRAINT chk_route_cost CHECK (delivery_cost >= 0)
 ) ENGINE = InnoDB;
 
--- จุดส่ง 1–3 จุดต่อใบงาน (ข้อมูลลูกค้าดึงผ่าน orders -> customers)
 CREATE TABLE route_stops (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     route_id BIGINT UNSIGNED NOT NULL,
@@ -206,8 +192,6 @@ VALUES (
 )
 ON DUPLICATE KEY UPDATE id = id;
 
--- ไรเดอร์ตัวอย่าง 10 คน (ล็อกอินด้วยเบอร์โทร)
--- 30 ออเดอร์ x ไม่เกิน 3 จุด/คน ต้องใช้ไรเดอร์อย่างน้อย 10 คน
 INSERT IGNORE INTO riders (name, phone) VALUES
     ('ไรเดอร์ 1', '0810000001'),
     ('ไรเดอร์ 2', '0810000002'),

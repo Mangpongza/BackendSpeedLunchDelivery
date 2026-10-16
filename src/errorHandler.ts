@@ -1,6 +1,5 @@
 import { NextFunction, Request, Response } from "express";
 
-/** โยน error พร้อม HTTP status แล้วให้ errorHandler ตอบกลับเป็น JSON */
 export class HttpError extends Error {
     constructor(public status: number, message: string, public details?: unknown) {
         super(message);
@@ -11,7 +10,6 @@ export const notFoundHandler = (req: Request, res: Response) => {
     res.status(404).json({ error: `Route not found: ${req.method} ${req.originalUrl}` });
 };
 
-// Express 5 ส่ง error จาก async handler มาที่นี่อัตโนมัติ
 export const errorHandler = (err: any, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof HttpError) {
         const body: Record<string, unknown> = { error: err.message };

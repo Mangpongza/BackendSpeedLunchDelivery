@@ -4,7 +4,6 @@ import { getJobDetail } from "../deliveryPlanService";
 import { HttpError } from "../errorHandler";
 import { isValidDateStr } from "../validation";
 
-// GET /api/jobs?search=&date=&status=&include_cancelled=true
 export const getJobs = async (req: Request, res: Response) => {
   const search = String(req.query.search ?? "").trim();
   const date = String(req.query.date ?? "").trim();
@@ -47,7 +46,6 @@ export const getJobs = async (req: Request, res: Response) => {
   return res.json(rows);
 };
 
-// GET /api/jobs/:code
 export const getJobByCode = async (req: Request, res: Response) => {
   return res.json(await getJobDetail(String(req.params.code)));
 };
