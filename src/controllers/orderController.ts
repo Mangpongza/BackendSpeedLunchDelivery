@@ -293,7 +293,19 @@ export const clearDemoOrders = async (_req: Request, res: Response) => {
     }
 };
 
+/** สุ่มพิกัดในรัศมีให้บริการรอบร้าน (เผื่อขอบ 5% กันหลุดรัศมี) */
+function randomPointInArea(settings: SettingsModel) {
+    const r = settings.service_radius_km * 0.95 * Math.sqrt(Math.random());
+    const angle = Math.random() * 2 * Math.PI;
+    const kmPerLngDegree = 111.32 * Math.cos((settings.shop_latitude * Math.PI) / 180);
+    return {
+        latitude: round(settings.shop_latitude + (r / 111.32) * Math.sin(angle), 7),
+        longitude: round(settings.shop_longitude + (r / kmPerLngDegree) * Math.cos(angle), 7),
+    };
+}
+
 // POST /api/order/random  { amount?: 20, order_date?: "YYYY-MM-DD" }  สร้างออเดอร์ทดสอบ
+// ใช้ลูกค้าในพื้นที่คนละ 1 ออเดอร์ ถ้าลูกค้าไม่พอจะสร้างลูกค้าทดสอบในรัศมีให้บริการเพิ่ม
 export const randomOrder = async (req: Request, res: Response) => {
     const amount = Number(req.body?.amount ?? 20);
     if (!Number.isInteger(amount) || amount < 1 || amount > 30) {
@@ -302,20 +314,52 @@ export const randomOrder = async (req: Request, res: Response) => {
     const orderDate = dateOrToday(req.body?.order_date, "order_date");
     const settings = await getSettings();
 
-    const [rows] = await db.query<RowDataPacket[]>("SELECT id, latitude, longitude FROM customers");
-    const customers = rows.filter((c) =>
-        haversineKm(settings.shop_latitude, settings.shop_longitude, Number(c.latitude), Number(c.longitude)) <=
-        settings.service_radius_km
-    );
-    if (customers.length === 0) throw new HttpError(400, "No customers inside the service area");
+    const conn = await db.getConnection();
+    try {
+        await conn.beginTransaction();
+        const [rows] = await conn.query<RowDataPacket[]>("SELECT id, latitude, longitude FROM customers");
+        const customerIds = rows
+            .filter((c) =>
+                haversineKm(settings.shop_latitude, settings.shop_longitude, Number(c.latitude), Number(c.longitude)) <=
+                settings.service_radius_km
+            )
+            .map((c) => Number(c.id))
+            .sort(() => Math.random() - 0.5) // shortcut: สลับแบบง่าย ไม่สุ่มเท่ากันเป๊ะ พอสำหรับข้อมูลทดสอบ
+            .slice(0, amount);
 
-    const values = Array.from({ length: amount }, () => [
-        customers[Math.floor(Math.random() * customers.length)]!.id,
-        Math.floor(Math.random() * settings.max_boxes_per_order) + 1,
-        orderDate,
-        "pending",
-        true,
-    ]);
-    await db.query("INSERT INTO orders (customer_id, quantity, order_date, status, is_demo) VALUES ?", [values]);
-    return res.status(201).json({ message: "Random orders generated", amount, order_date: orderDate });
+        let createdCustomers = 0;
+        while (customerIds.length < amount) {
+            const point = randomPointInArea(settings);
+            const phone = "099" + String(Math.floor(Math.random() * 1e7)).padStart(7, "0");
+            const [dup] = await conn.query<RowDataPacket[]>("SELECT id FROM customers WHERE phone = ?", [phone]);
+            if (dup.length > 0) continue; // เบอร์ซ้ำ สุ่มใหม่
+            const [r] = await conn.query<ResultSetHeader>(
+                "INSERT INTO customers (name, phone, address, latitude, longitude) VALUES (?, ?, ?, ?, ?)",
+                [`ลูกค้าทดสอบ ${phone.slice(-4)}`, phone, "ข้อมูลทดสอบ", point.latitude, point.longitude]
+            );
+            customerIds.push(r.insertId);
+            createdCustomers++;
+        }
+
+        const values = customerIds.map((customerId) => [
+            customerId,
+            Math.floor(Math.random() * settings.max_boxes_per_order) + 1,
+            orderDate,
+            "pending",
+            true,
+        ]);
+        await conn.query("INSERT INTO orders (customer_id, quantity, order_date, status, is_demo) VALUES ?", [values]);
+        await conn.commit();
+        return res.status(201).json({
+            message: "Random orders generated",
+            amount,
+            order_date: orderDate,
+            created_customers: createdCustomers,
+        });
+    } catch (err) {
+        await conn.rollback();
+        throw err;
+    } finally {
+        conn.release();
+    }
 };

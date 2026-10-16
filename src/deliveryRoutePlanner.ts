@@ -7,8 +7,9 @@ import { haversineKm } from "./distanceCalculator";
  * 2. ลองทุกจุดเริ่มต้นของวงกลม แล้วใช้ Dynamic Programming แบ่งเป็น k ช่วงต่อเนื่อง
  *    (ช่วงละไม่เกิน max_orders_per_rider จุด และไม่เกิน 10 กล่อง)
  * 3. ในแต่ละช่วงลองทุกลำดับการส่ง (≤3 จุด = ไม่เกิน 6 แบบ) เลือกแบบที่สั้นที่สุด
- * 4. เริ่มจากจำนวนไรเดอร์ขั้นต่ำ ถ้ายังมีจุดที่ส่งไม่ทัน 12:30 ค่อยเพิ่มไรเดอร์ทีละคน
- *    ในแต่ละจำนวนไรเดอร์ เลือกแบบที่ (ก) เลทน้อยที่สุด แล้ว (ข) ค่าส่งรวมถูกที่สุด
+ * 4. ลองทุกจำนวนไรเดอร์ ตั้งแต่จำนวนขั้นต่ำจนถึงจำนวนที่มี
+ *    เลือกแบบที่ (ก) เลทน้อยที่สุด แล้ว (ข) ค่าส่งรวมถูกที่สุด
+ *    (ค่าส่ง = 15 + 2 x กล่อง x กม. ต่อคน แบ่งให้หลายคนจึงมักถูกกว่า)
  */
 
 export interface PlannerOrder {
@@ -225,10 +226,8 @@ export function planRoutes<T extends PlannerOrder>(orders: T[], opt: PlannerOpti
             const r = splitIntoRoutes(seq, k, opt, cache);
             if (r && (bestAtK === null || better(r.score, bestAtK.score))) bestAtK = r;
         }
-        // เลท "น้อยกว่า" เท่านั้นถึงจะยอมเพิ่มไรเดอร์
-        if (bestAtK && (best === null || bestAtK.score.late < best.score.late)) best = bestAtK;
-        // ใช้ไรเดอร์น้อยที่สุดที่ส่งทันทุกจุด แล้วหยุด
-        if (best && best.score.late === 0) break;
+        // เทียบข้ามจำนวนไรเดอร์: เลทน้อยกว่าก่อน แล้วค่าส่งถูกกว่า
+        if (bestAtK && (best === null || better(bestAtK.score, best.score))) best = bestAtK;
     }
     if (!best) throw new PlannerError("Cannot build a plan with the current settings");
 
