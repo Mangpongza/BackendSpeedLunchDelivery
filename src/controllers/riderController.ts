@@ -14,8 +14,8 @@ export const getRiders = async (req: Request, res: Response) => {
                COUNT(rr.id) AS jobs_on_date
         FROM riders r
         LEFT JOIN rider_routes rr
-               ON rr.rider_id = r.id AND rr.status <> 'cancelled'
-              AND rr.plan_id IN (SELECT id FROM delivery_plans WHERE delivery_date = ? AND status <> 'cancelled')`;
+               ON rr.rider_id = r.id AND rr.status <> 'cancelled'   
+                AND rr.plan_id IN (SELECT id FROM delivery_plans WHERE delivery_date = ? AND status <> 'cancelled')`;             
     if (search) {
         sql += ` WHERE r.name LIKE ? OR r.phone LIKE ?`;
         params.push(`%${search}%`, `%${search}%`);
