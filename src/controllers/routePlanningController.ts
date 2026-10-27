@@ -3,10 +3,11 @@ import { ResultSetHeader, RowDataPacket } from "mysql2";
 import { db } from "../config/dbconnect";
 import { CalculatePlanBody, PendingOrderRow } from "../models/deliveryPlanModel";
 import { BOX_CAPACITY_PER_RIDER, LATE_PENALTY_PER_ORDER } from "../models/settingsModel";
-import { PlannerError, planRoutes } from "../deliveryRoutePlanner";
+import { PlannerError, planRoutes, routeSignature } from "../deliveryRoutePlanner";
 import { getPlanDetail } from "../deliveryPlanService";
 import { distanceFromShopKm, getSettings } from "../shopSettingsService";
 import { round } from "../distanceCalculator";
+import { roadDistances } from "../roadDistanceService";
 import { HttpError } from "../errorHandler";
 import {
     dateOrToday,
@@ -82,6 +83,7 @@ export const calculatePlan = async (req: Request, res: Response) => {
 
         const [oldRows] = await conn.query<RowDataPacket[]>(
             `SELECT p.id,
+                    (SELECT COUNT(*) FROM rider_routes rr WHERE rr.plan_id = p.id AND rr.status = 'in_progress') AS started_routes,
                     (SELECT COUNT(*) FROM rider_routes rr JOIN route_stops rs ON rs.route_id = rr.id
                      WHERE rr.plan_id = p.id AND rs.status = 'delivered') AS delivered_stops
              FROM delivery_plans p
@@ -89,10 +91,24 @@ export const calculatePlan = async (req: Request, res: Response) => {
              FOR UPDATE`,
             [deliveryDate]
         );
-        if (oldRows.some((p) => Number(p.delivered_stops) > 0)) {
+        if (oldRows.some((p) => Number(p.delivered_stops) > 0 || Number(p.started_routes) > 0)) {
             throw new HttpError(409, "Riders already started delivering today's plan, cannot recalculate");
         }
         replacedPlans = oldRows.map((p) => Number(p.id));
+        const excludedSignatures: string[] = [];
+        for (const oldPlanId of replacedPlans) {
+            const [previousStops] = await conn.query<RowDataPacket[]>(
+                `SELECT rs.route_id, rs.order_id FROM route_stops rs
+                 JOIN rider_routes rr ON rr.id = rs.route_id
+                 WHERE rr.plan_id = ? ORDER BY rs.route_id, rs.stop_sequence`, [oldPlanId]);
+            const routes = new Map<number, number[]>();
+            for (const stop of previousStops) {
+                const ids = routes.get(Number(stop.route_id)) ?? [];
+                ids.push(Number(stop.order_id));
+                routes.set(Number(stop.route_id), ids);
+            }
+            excludedSignatures.push(routeSignature([...routes.values()]));
+        }
         if (replacedPlans.length > 0) {
             const ph = replacedPlans.map(() => "?").join(",");
             await conn.query(`UPDATE delivery_plans SET status = 'cancelled' WHERE id IN (${ph})`, replacedPlans);
@@ -127,9 +143,14 @@ export const calculatePlan = async (req: Request, res: Response) => {
         if (riderRows.length === 0) throw new HttpError(400, "No riders in the system, add riders first (POST /api/riders)");
 
         const departureMin = timeToMinutes(departureTime);
+        const distance = await roadDistances([
+            { latitude: settings.shop_latitude, longitude: settings.shop_longitude }, ...orders,
+        ]);
         let plan;
         try {
             plan = planRoutes(orders, {
+                excludedSignatures,
+                distance,
                 shopLat: settings.shop_latitude,
                 shopLng: settings.shop_longitude,
                 minRiders,
@@ -145,11 +166,12 @@ export const calculatePlan = async (req: Request, res: Response) => {
                 latePenalty: LATE_PENALTY_PER_ORDER,
             });
         } catch (e) {
-            if (e instanceof PlannerError) throw new HttpError(400, e.message);
+            if (e instanceof PlannerError) throw new HttpError(400, excludedSignatures.length ? 'No different feasible plan was found. The existing plan has been kept.' : e.message);
             throw e;
         }
 
         const revenue = plan.totalBoxes * settings.box_price;
+        if (plan.lateOrders > 0) throw new HttpError(422, 'Cannot deliver all orders before the deadline. Add more riders or revise orders.');
         const foodCost = plan.totalBoxes * settings.box_cost;
         const profit = revenue - foodCost - plan.deliveryCost - plan.latePenalty;
 

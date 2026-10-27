@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import { db } from "../config/dbconnect";
+import { sampleCustomers } from "../orderSampling";
 import { CreateOrderModel, ORDER_STATUSES, OrderModel, OrderStatus, UpdateOrderModel } from "../models/orderModel";
 import { assertInServiceArea, getSettings } from "../shopSettingsService";
 import { refreshRouteAndPlanStatus } from "../deliveryPlanService";
@@ -304,15 +305,17 @@ export const randomOrder = async (req: Request, res: Response) => {
     const conn = await db.getConnection();
     try {
         await conn.beginTransaction();
-        const [rows] = await conn.query<RowDataPacket[]>("SELECT id, latitude, longitude FROM customers");
-        const customerIds = rows
+        const [rows] = await conn.query<RowDataPacket[]>(
+            `SELECT c.id, c.latitude, c.longitude FROM customers c WHERE NOT EXISTS (
+                SELECT 1 FROM orders o WHERE o.customer_id = c.id AND o.order_date = ? AND o.status <> 'cancelled'
+            )`, [orderDate]);
+        const eligible = rows
             .filter((c) =>
                 haversineKm(settings.shop_latitude, settings.shop_longitude, Number(c.latitude), Number(c.longitude)) <=
                 settings.service_radius_km
             )
-            .map((c) => Number(c.id))
-            .sort(() => Math.random() - 0.5)
-            .slice(0, amount);
+            .map((c) => Number(c.id));
+        const customerIds = eligible.length ? sampleCustomers(eligible, Math.min(amount, eligible.length)) : [];
 
         let createdCustomers = 0;
         while (customerIds.length < amount) {

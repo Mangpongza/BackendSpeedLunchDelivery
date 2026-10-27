@@ -8,6 +8,8 @@ export interface PlannerOrder {
 }
 
 export interface PlannerOptions {
+    excludedSignatures?: string[];
+    distance?: (lat: number, lng: number, nextLat: number, nextLng: number) => number;
     shopLat: number;
     shopLng: number;
     minRiders: number;
@@ -54,6 +56,10 @@ export interface PlanResult<T extends PlannerOrder> {
 
 export class PlannerError extends Error {}
 
+export function routeSignature(routes: number[][]): string {
+    return routes.map(ids => ids.join(',')).sort().join('|');
+}
+
 interface Score { late: number; cost: number; }
 const INFEASIBLE: Score = { late: Infinity, cost: Infinity };
 
@@ -85,13 +91,15 @@ export function bestRoute<T extends PlannerOrder>(group: T[], opt: PlannerOption
     const orders = group.length <= 6 ? permutations(group) : [nearestNeighbor(group, opt)];
     for (const seq of orders) {
         let lat = opt.shopLat, lng = opt.shopLng, dist = 0, late = 0;
+        let serviceTime = 0;
         const stops: PlannedStop<T>[] = seq.map((o, i) => {
-            const d = haversineKm(lat, lng, o.latitude, o.longitude);
+            const d = (opt.distance ?? haversineKm)(lat, lng, o.latitude, o.longitude);
+            if (i > 0 && (lat !== o.latitude || lng !== o.longitude)) serviceTime += opt.serviceMinutes;
             dist += d;
             lat = o.latitude;
             lng = o.longitude;
 
-            const arrivalMin = opt.departureMin + (dist / opt.speedKmh) * 60 + opt.serviceMinutes * i;
+            const arrivalMin = opt.departureMin + (dist / opt.speedKmh) * 60 + serviceTime;
             const isLate = arrivalMin > opt.deadlineMin;
             if (isLate) late++;
             return { order: o, sequence: i + 1, distanceFromPreviousKm: d, arrivalMin, late: isLate };
@@ -104,8 +112,8 @@ export function bestRoute<T extends PlannerOrder>(group: T[], opt: PlannerOption
                 stops,
                 totalBoxes,
                 distanceKm: dist,
-                returnDistanceKm: haversineKm(lat, lng, opt.shopLat, opt.shopLng),
-                durationMinutes: (dist / opt.speedKmh) * 60 + opt.serviceMinutes * seq.length,
+                returnDistanceKm: (opt.distance ?? haversineKm)(lat, lng, opt.shopLat, opt.shopLng),
+                durationMinutes: (dist / opt.speedKmh) * 60 + serviceTime + opt.serviceMinutes,
                 deliveryCost: cost,
                 lateOrders: late,
             };
@@ -121,7 +129,7 @@ function nearestNeighbor<T extends PlannerOrder>(group: T[], opt: PlannerOptions
     while (remaining.length > 0) {
         let bi = 0, bd = Infinity;
         remaining.forEach((o, i) => {
-            const d = haversineKm(lat, lng, o.latitude, o.longitude);
+            const d = (opt.distance ?? haversineKm)(lat, lng, o.latitude, o.longitude);
             if (d < bd) { bd = d; bi = i; }
         });
         const p = remaining.splice(bi, 1)[0]!;
@@ -207,6 +215,7 @@ export function planRoutes<T extends PlannerOrder>(orders: T[], opt: PlannerOpti
         for (let offset = 0; offset < sorted.length; offset++) {
             const seq = [...sorted.slice(offset), ...sorted.slice(0, offset)];
             const r = splitIntoRoutes(seq, k, opt, cache);
+            if (r && opt.excludedSignatures?.includes(routeSignature(r.routes.map(route => route.stops.map(stop => stop.order.id))))) continue;
             if (r && (bestAtK === null || better(r.score, bestAtK.score))) bestAtK = r;
         }
 
